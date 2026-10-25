@@ -1,0 +1,12 @@
+{
+  "name": "baby_massage",
+  "version": "1.0.0",
+  "description": "Дневник массажиста — календарь, клиенты, доходы, задачи",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "express": "^4.19.2"
+  }
+}

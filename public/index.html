@@ -1,0 +1,3038 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Дневник массажиста</title>
+<meta name="theme-color" content="#F6F1E7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Массаж">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png">
+<script>
+/* Хранилище на сервере вместо хранилища Claude */
+(function(){
+  var versions = {};
+  window.__REMOTE = true;
+  window.__ROLE = 'husband';
+  window.__versions = versions;
+  function note(msg){ if(typeof window.toast==='function') window.toast(msg); }
+  window.storage = {
+    get: async function(key){
+      var r = await fetch('/api/storage/'+key, {credentials:'same-origin', cache:'no-store'});
+      if(r.status===401){ location.href='/login'; throw new Error('auth'); }
+      if(r.status===404){ versions[key] = 0; return null; }
+      if(!r.ok) throw new Error('load '+r.status);
+      var j = await r.json();
+      versions[key] = j.version;
+      return {value: j.value};
+    },
+    set: async function(key, value){
+      var headers = {'Content-Type':'application/json'};
+      if(window.__force) headers['X-Force'] = '1';
+      var r;
+      try{
+        r = await fetch('/api/storage/'+key, {method:'PUT', credentials:'same-origin', headers: headers,
+          body: JSON.stringify({value: value, base: versions[key]})});
+      }catch(e){
+        note('Не удалось сохранить — нет связи с сервером. Проверьте интернет.');
+        throw e;
+      }
+      if(r.status===401){ location.href='/login'; throw new Error('auth'); }
+      if(r.status===409){
+        var jj = {}; try{ jj = await r.json(); }catch(_){}
+        note(jj.reason==='shrink'
+          ? 'Сохранение остановлено: оно удалило бы слишком много записей. Данные не изменены.'
+          : 'Данные обновились на другом устройстве. Последнее действие не сохранилось — повторите его.');
+        if(typeof window.__reload==='function') window.__reload();
+        throw new Error('conflict');
+      }
+      if(!r.ok){
+        note('Не удалось сохранить (ошибка сервера). Попробуйте ещё раз.');
+        throw new Error('save '+r.status);
+      }
+      var j = await r.json();
+      versions[key] = j.version;
+    }
+  };
+  window.__ready = fetch('/api/me', {credentials:'same-origin'}).then(function(r){ return r.json(); })
+    .then(function(j){ if(j && j.role) window.__ROLE = j.role; }).catch(function(){});
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAF6EF;
+    --surface:#FFFFFF;
+    --surface-alt:#F1EBDC;
+    --ink:#182F28;
+    --ink-soft:#657069;
+    --ink-faint:#9AA39B;
+    --line:#E7DFCB;
+    --accent:#C08A2E;
+    --accent-ink:#5C4319;
+    --accent-soft:#F2E2BC;
+    --rose:#C67C6B;
+    --rose-soft:#F3DDD6;
+    --sage:#5E8468;
+    --sage-soft:#DEEBE0;
+    --radius:16px;
+    --radius-sm:10px;
+    --shadow:0 4px 18px rgba(24,47,40,0.09);
+    --font-serif:'Fraunces',Georgia,'Iowan Old Style',serif;
+    --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-sans);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    padding-bottom:76px;
+  }
+  header.top{
+    padding:22px 20px 14px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+  }
+  header.top h1{
+    font-family:var(--font-serif);
+    font-weight:600;
+    font-size:22px;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  header.top{gap:10px;align-items:center;}
+  header.top h1{flex:1;min-width:0;}
+  .view-toggle{display:inline-flex;flex-shrink:0;background:var(--surface-alt);border-radius:12px;padding:3px;gap:2px;}
+  .view-toggle button{border:none;background:none;font-family:var(--font-sans);font-size:13.5px;font-weight:600;color:var(--ink-soft);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap;}
+  .view-toggle button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(24,47,40,0.14);}
+  @media (max-width:400px){ header.top h1{font-size:19px;} .view-toggle button{padding:8px 12px;} }
+  header.top .tab-label{
+    font-size:13px;
+    color:var(--ink-faint);
+  }
+  main{
+    flex:1;
+    padding:0 16px 20px;
+  }
+  /* Tab bar */
+  nav.tabbar{
+    position:fixed;
+    bottom:0;left:0;right:0;
+    max-width:480px;
+    margin:0 auto;
+    background:var(--surface);
+    border-top:1px solid var(--line);
+    display:flex;
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    z-index:30;
+  }
+  nav.tabbar button{
+    flex:1;
+    background:none;
+    border:none;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+    padding:6px 4px;
+    font-family:var(--font-sans);
+    font-size:11px;
+    color:var(--ink-faint);
+    cursor:pointer;
+    border-radius:10px;
+  }
+  nav.tabbar button.active{color:var(--accent-ink);}
+  nav.tabbar svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6;}
+
+  /* Cards */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    margin-bottom:10px;
+  }
+  .card:active{background:var(--surface-alt);}
+
+  /* Calendar */
+  .cal-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:4px 2px 12px;
+  }
+  .cal-header .month{
+    font-family:var(--font-serif);
+    font-size:19px;
+    font-weight:600;
+  }
+  .cal-header button{
+    width:34px;height:34px;border-radius:50%;
+    border:1px solid var(--line);background:var(--surface);
+    display:flex;align-items:center;justify-content:center;
+    color:var(--ink);cursor:pointer;
+  }
+  .weekdays{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:4px;}
+  .weekdays span{
+    text-align:center;font-size:11px;color:var(--ink-faint);padding:4px 0;
+  }
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .cal-cell{
+    aspect-ratio:1/1;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:12px;
+    background:var(--surface);
+    border:1px solid transparent;
+    cursor:pointer;
+    position:relative;
+    font-size:13px;
+  }
+  .cal-cell.empty{background:none;cursor:default;}
+  .cal-cell.today{border-color:var(--accent);}
+  .cal-cell .num{font-weight:500;}
+  .cal-cell .dot{
+    width:6px;height:6px;border-radius:50%;margin-top:3px;
+  }
+  .dot.pending{background:var(--accent);}
+  .dot.paid{background:var(--sage);}
+  .dot.mixed{background:linear-gradient(90deg,var(--sage) 50%,var(--accent) 50%);}
+  .district-tag{font-size:11px;background:var(--surface-alt);color:var(--ink-soft);padding:1px 8px;border-radius:10px;margin-left:6px;white-space:nowrap;}
+  .dist-row{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;border-bottom:1px solid var(--line);padding:9px 0;font-family:inherit;font-size:13.5px;color:var(--ink);cursor:pointer;text-align:left;}
+  .dist-row.zero{color:var(--ink-faint);}
+  .dist-name{flex:0 0 112px;}
+  .dist-bar{flex:1;height:6px;background:var(--surface-alt);border-radius:4px;overflow:hidden;}
+  .dist-bar i{display:block;height:100%;background:var(--accent);border-radius:4px;}
+  .dist-row strong{min-width:20px;text-align:right;}
+  .dots-row{display:flex;align-items:center;justify-content:center;gap:3px;min-height:9px;margin-top:3px;}
+  .dots-row .dot{margin-top:0;}
+  .bang{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#C0392B;color:#fff;font-size:12px;font-weight:700;line-height:1;flex:none;}
+  .cal-cell .bang{width:13px;height:13px;font-size:9px;}
+  nav.tabbar button{position:relative;min-width:0;}
+  nav.tabbar .bang{position:absolute;top:4px;left:calc(50% + 6px);width:16px;height:16px;font-size:11px;}
+  .unpaid-card{background:#FBE9E5;border:1px solid #E7B4AA;border-radius:14px;padding:4px 12px;margin-bottom:12px;}
+  .unpaid-card .fold-head{color:#8A2A1D;}
+  .block{margin-bottom:10px;}
+  .block-head{display:flex;align-items:center;gap:8px;padding:8px 2px;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--ink-soft);}
+  .unpaid-card .block-head{color:#8A2A1D;}
+  .year-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .year-row.zero{color:var(--ink-faint);}
+  .year-head{font-size:11px;color:var(--ink-faint);padding-top:0;}
+  .year-head .year-bar{background:none;}
+  .year-total{font-weight:700;border-bottom:none;padding-bottom:0;}
+  .year-m{flex:0 0 42px;}
+  .year-bar{flex:1;height:6px;background:var(--surface-alt);border-radius:4px;overflow:hidden;}
+  .year-bar i{display:block;height:100%;background:var(--accent);border-radius:4px;}
+  .year-num{flex:0 0 26px;text-align:right;}
+  .year-sum{flex:0 0 66px;text-align:right;}
+  .year-new{flex:0 0 28px;text-align:right;color:#4C7A5A;font-size:12px;}
+  .tcount{min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;}
+  .tcount.late{background:#C0392B;}
+  .hdr-search{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-left:auto;margin-right:8px;color:var(--ink);}
+  .hdr-search svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;}
+  .search-row{display:block;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:6px;font-family:inherit;cursor:pointer;}
+  .search-name{font-weight:600;font-size:14px;color:var(--ink);}
+  .search-sub{font-size:12px;color:var(--ink-faint);margin-top:2px;}
+  .cap-hint{border-radius:10px;padding:9px 12px;font-size:13px;margin:-4px 0 12px;font-weight:600;}
+  .cap-hint.hidden{display:none;}
+  .cap-hint.warn{background:#FFF1D6;color:#7A5410;}
+  .cap-hint.block{background:#FBE3DE;color:#8A2A1D;}
+  .cal-cell.offday{background:repeating-linear-gradient(135deg,var(--surface-alt),var(--surface-alt) 5px,var(--surface) 5px,var(--surface) 10px);}
+  .cal-cell.disabled{opacity:.4;cursor:default;}
+  .off-tag{font-size:9.5px;color:var(--ink-faint);font-weight:600;}
+  .off-mode-card{background:var(--accent-soft);border-radius:14px;padding:12px;margin-bottom:12px;font-size:13px;}
+  .off-msg{background:var(--surface);border-radius:10px;padding:8px 10px;margin-bottom:8px;font-size:12.5px;font-weight:600;}
+  .offday-banner{background:var(--surface-alt);color:var(--ink-soft);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:8px;}
+  .badge.status-interrupted{background:#F0D4CE;color:#7A2E22;}
+  .interrupted-note{background:#FBE9E5;color:#7A2E22;border-radius:10px;padding:8px 12px;font-size:12.5px;margin-bottom:8px;}
+  #toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%) translateY(20px);max-width:min(440px,calc(100% - 32px));background:var(--ink);color:#FBF8F2;padding:11px 16px;border-radius:12px;font-size:13.5px;line-height:1.4;z-index:300;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;box-shadow:0 6px 20px rgba(0,0,0,.2);}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .confirm-text{font-size:14px;line-height:1.5;color:var(--ink);margin-bottom:16px;}
+  .bal-row{display:flex;flex-wrap:wrap;gap:6px 12px;margin:6px 0 2px;font-size:13px;font-weight:600;}
+  .bal-row.compact{font-size:12px;}
+  .bal-debt{color:#B03A2A;}
+  .bal-ahead{color:#4C7A5A;}
+  .meta-row .bal-debt,.meta-row .bal-ahead{font-weight:600;}
+  .tab-badge{position:absolute;top:2px;left:calc(50% + 6px);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box;}
+  .tab-badge.red{background:#C0392B;}
+  .tasks-date{font-size:12.5px;font-weight:600;color:var(--ink-soft);margin:14px 2px 6px;}
+  .fold{margin-bottom:6px;}
+  .fold-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 2px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--ink-soft);cursor:pointer;text-align:left;}
+  .fold-title{display:inline-flex;align-items:center;gap:8px;flex:1;}
+  .fold-count{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:1px 9px;font-size:12px;}
+  .unpaid-card .fold-count{background:#C0392B;color:#fff;}
+  .fold-arrow{transition:transform .2s;font-size:14px;}
+  .fold.closed .fold-arrow{transform:rotate(-90deg);}
+  .fold.closed .fold-body{display:none;}
+  .unpaid-row{display:flex;justify-content:space-between;gap:10px;width:100%;background:none;border:none;border-top:1px solid #EFCBC3;padding:9px 0;font-family:inherit;font-size:13px;color:var(--ink);text-align:left;cursor:pointer;}
+  .sess-unpaid{display:flex;align-items:center;gap:6px;color:#8A2A1D;font-size:12.5px;font-weight:600;margin-bottom:6px;}
+  .sess-line{display:flex;align-items:center;gap:8px;min-width:0;}
+  .sess-line .sess-time{font-size:13.5px;padding:3px 9px;flex:none;}
+  .sess-line .sess-addr{flex:1;min-width:0;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;}
+  .sess-line .sess-addr.none{text-decoration:none;font-weight:600;color:var(--ink-soft);}
+  .sess-line .bang,.sess-line .paid-mark{flex:none;}
+  .session-row{padding:8px 10px !important;margin-bottom:6px !important;}
+  .sess-details{display:none;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
+  .session-row.open .sess-details{display:block;}
+  .sess-more{flex:none;background:var(--accent-soft);color:var(--accent-ink);border:none;border-radius:14px;padding:4px 10px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;}
+  .session-row.open .sess-more .fold-arrow{transform:rotate(180deg);}
+  .sess-info{font-size:12.5px;color:var(--ink-soft);margin-bottom:6px;}
+  .paid-mark{color:#4C7A5A;font-weight:700;margin-right:4px;}
+  .tdot{width:6px;height:6px;border-radius:2px;background:var(--rose);display:inline-block;}
+
+  /* Tasks */
+  .task-section-label{font-size:12px;font-weight:600;color:var(--ink-soft);margin:4px 2px 6px;}
+  .task-empty{font-size:12.5px;color:var(--ink-faint);margin:0 2px 6px;}
+  .task-row{
+    display:flex;align-items:flex-start;gap:10px;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:10px 12px;margin-bottom:6px;
+  }
+  .task-row.done{background:var(--surface-alt);}
+  .task-row.done .task-title{text-decoration:line-through;color:var(--ink-faint);}
+  .task-check{
+    width:24px;height:24px;border-radius:7px;flex-shrink:0;
+    border:1.5px solid var(--ink-faint);background:var(--surface);
+    color:#fff;font-size:14px;font-weight:700;line-height:1;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;margin-top:1px;
+  }
+  .task-check.checked{background:var(--sage);border-color:var(--sage);}
+  .task-body{flex:1;min-width:0;cursor:pointer;}
+  .task-title{font-size:14px;font-weight:500;word-break:break-word;}
+  .task-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11.5px;color:var(--ink-faint);margin-top:2px;}
+  .task-meta:empty{display:none;}
+  .task-from{background:var(--rose-soft);color:#7A3B2E;font-weight:600;padding:0 7px;border-radius:10px;}
+  .task-note{font-size:12px;color:var(--ink-soft);margin-top:4px;word-break:break-word;}
+
+  /* Buttons */
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    font-family:var(--font-sans);font-weight:600;font-size:14.5px;
+    padding:12px 18px;border-radius:12px;border:none;cursor:pointer;
+    width:100%;
+  }
+  .btn-primary{background:var(--ink);color:#FBF8F2;}
+  .btn-accent{background:var(--accent);color:#3A2A0E;}
+  .btn-ghost{background:var(--surface-alt);color:var(--ink);}
+  .btn-outline{background:none;border:1px solid var(--line);color:var(--ink);}
+  .btn-danger{background:var(--rose-soft);color:#7A3B2E;}
+  .btn-sm{padding:8px 12px;font-size:13px;width:auto;}
+  .row-btns{display:flex;gap:8px;}
+  .row-btns .btn{flex:1;}
+
+  .fab{
+    position:fixed;
+    right:calc((100% - 480px)/2 + 18px);
+    bottom:92px;
+    width:54px;height:54px;border-radius:50%;
+    background:var(--ink);color:#FBF8F2;border:none;
+    box-shadow:var(--shadow);
+    font-size:26px;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;z-index:20;
+  }
+  @media (max-width:480px){
+    .fab{right:18px;}
+  }
+
+  /* Forms */
+  label.field{display:block;margin-bottom:14px;}
+  label.field span{
+    display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;
+  }
+  input,textarea,select{
+    width:100%;
+    font-family:var(--font-sans);
+    font-size:15px;
+    padding:11px 12px;
+    border-radius:10px;
+    border:1px solid var(--line);
+    background:var(--surface);
+    color:var(--ink);
+  }
+  textarea{resize:vertical;min-height:60px;}
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .seg button{
+    flex:1;padding:10px;border:none;background:var(--surface);font-family:var(--font-sans);
+    font-size:14px;cursor:pointer;color:var(--ink-soft);
+  }
+  .seg button.active{background:var(--ink);color:#FBF8F2;font-weight:600;}
+
+  /* Overlay / sheet */
+  .overlay{
+    position:fixed;inset:0;background:rgba(24,32,28,0.42);
+    display:flex;align-items:flex-end;justify-content:center;
+    z-index:50;opacity:0;pointer-events:none;transition:opacity .18s ease;
+  }
+  .overlay.show{opacity:1;pointer-events:auto;}
+  .sheet{
+    background:var(--bg);
+    width:100%;max-width:480px;
+    max-height:88vh;
+    border-radius:20px 20px 0 0;
+    padding:16px 18px calc(22px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+    transform:translateY(16px);
+    transition:transform .18s ease;
+  }
+  .overlay.show .sheet{transform:translateY(0);}
+  .sheet-handle{
+    width:36px;height:4px;background:var(--line);border-radius:3px;margin:2px auto 14px;
+  }
+  .sheet h2{
+    font-family:var(--font-serif);font-size:19px;font-weight:600;margin:0 0 4px;
+  }
+  .sheet h3{
+    font-family:var(--font-serif);font-size:16px;font-weight:600;margin:18px 0 8px;
+  }
+  .sheet .sub{color:var(--ink-soft);font-size:13px;margin-bottom:14px;}
+
+  /* Client list */
+  .client-card{cursor:pointer;}
+  .client-card .top-row{display:flex;justify-content:space-between;align-items:flex-start;}
+  .client-card .name{font-weight:600;font-size:15px;}
+  .client-card .child{color:var(--ink-soft);font-size:13px;margin-top:2px;}
+  .badge{
+    font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;white-space:nowrap;
+  }
+  .badge.active{background:var(--accent-soft);color:var(--accent-ink);}
+  .badge.done{background:var(--sage-soft);color:#33503A;}
+  .badge.status-booking{background:var(--surface-alt);color:var(--ink-soft);}
+  .badge.status-confirmed{background:var(--accent-soft);color:var(--accent-ink);}
+  .badge.status-agreed{background:var(--rose-soft);color:#7A3B2E;}
+  .badge.status-progress{background:var(--sage-soft);color:#33503A;}
+  .badge.status-done{background:var(--ink);color:#FBF8F2;}
+  .status-chip{
+    font-size:12px;padding:6px 11px;border-radius:20px;font-weight:600;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink-soft);cursor:pointer;
+  }
+  .status-chip.selected{border-color:transparent;}
+  .status-chip.selected.status-booking{background:var(--surface-alt);color:var(--ink-soft);}
+  .status-chip.selected.status-confirmed{background:var(--accent-soft);color:var(--accent-ink);}
+  .status-chip.selected.status-agreed{background:var(--rose-soft);color:#7A3B2E;}
+  .status-chip.selected.status-progress{background:var(--sage-soft);color:#33503A;}
+  .status-chip.selected.status-done{background:var(--ink);color:#FBF8F2;}
+  .meta-row{display:flex;gap:14px;margin-top:8px;font-size:12.5px;color:var(--ink-faint);}
+
+  /* Timeline */
+  .timeline-item{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 0;border-bottom:1px solid var(--line);
+  }
+  .timeline-item:last-child{border-bottom:none;}
+  .t-num{
+    width:26px;height:26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:11.5px;font-weight:700;flex-shrink:0;
+  }
+  .t-num.session-paid{background:var(--sage-soft);color:#33503A;}
+  .t-num.session-pending{background:var(--accent-soft);color:var(--accent-ink);}
+  .t-num.off{background:var(--rose-soft);color:#7A3B2E;font-size:9px;}
+  .t-info{flex:1;font-size:13.5px;}
+  .t-date{color:var(--ink-soft);font-size:11.5px;}
+  .t-action{font-size:12px;color:var(--accent-ink);font-weight:600;cursor:pointer;background:none;border:none;padding:6px;}
+
+  /* Income */
+  .summary-row{display:flex;gap:8px;margin-bottom:14px;}
+  .summary-card{
+    flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:12px;text-align:center;
+  }
+  .summary-card .val{font-family:var(--font-serif);font-size:19px;font-weight:600;}
+  .summary-card .lab{font-size:11px;color:var(--ink-faint);margin-top:2px;}
+  .rev-day-group{margin-bottom:6px;}
+  .rev-day-label{font-size:12px;color:var(--ink-faint);margin:14px 2px 6px;}
+  .rev-row{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:11px 13px;margin-bottom:6px;cursor:pointer;
+  }
+  .rev-row .who{font-size:13.5px;font-weight:500;}
+  .rev-row .cmt{font-size:12px;color:var(--ink-faint);}
+  .rev-row .amt{font-weight:700;font-family:var(--font-serif);font-size:15px;}
+  .type-pill{font-size:10.5px;padding:2px 8px;border-radius:20px;font-weight:600;margin-left:6px;}
+  .type-pill.cash{background:var(--accent-soft);color:var(--accent-ink);}
+  .type-pill.transfer{background:var(--sage-soft);color:#33503A;}
+
+  .empty-state{
+    text-align:center;padding:50px 20px;color:var(--ink-soft);
+  }
+  .empty-state .big{font-family:var(--font-serif);font-size:17px;color:var(--ink);margin-bottom:6px;}
+
+  .session-row{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px;margin-bottom:8px;
+  }
+  .session-row .top-row{display:flex;justify-content:space-between;align-items:center;}
+  .session-row .name{font-weight:600;font-size:14.5px;}
+  .session-row .sub{font-size:12px;color:var(--ink-faint);margin-top:2px;}
+  .sess-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .sess-time{display:inline-flex;align-items:center;background:var(--accent-soft);color:var(--accent-ink);font-family:inherit;font-weight:700;font-size:14px;padding:3px 11px;border-radius:9px;border:none;cursor:pointer;}
+  .sess-meta{font-size:12px;color:var(--ink-faint);text-align:right;}
+  .sess-addr-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .sess-addr{font-family:inherit;font-weight:700;color:var(--ink);font-size:15.5px;text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;text-align:left;}
+  .sess-change{font-family:inherit;font-size:11px;color:var(--ink-faint);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;}
+  .sess-names{font-size:12px;color:var(--ink-soft);margin-top:3px;}
+  .phone-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .phone-pill{border:none;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;padding:6px 12px;border-radius:20px;background:var(--surface-alt);color:var(--accent-ink);font-size:12.5px;font-weight:600;text-decoration:none;}
+  .sess-actions{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+  .dayoff-card{background:var(--rose-soft);color:#7A3B2E;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px;}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+/* ---------------- Utilities ---------------- */
+const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const WEEKDAYS = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+function pad(n){ return n<10 ? '0'+n : ''+n; }
+function toISO(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+function addDays(d,n){ const nd=new Date(d); nd.setDate(nd.getDate()+n); return nd; }
+function todayISO(){ return toISO(new Date()); }
+function fmtDateShort(iso){ const d=parseISO(iso); return d.getDate()+' '+MONTHS[d.getMonth()].slice(0,3).toLowerCase(); }
+const MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+function fmtDateLong(iso){ const d=parseISO(iso); return d.getDate()+' '+MONTHS_GEN[d.getMonth()]; }
+function escapeHtml(s){
+  if(s===undefined||s===null) return '';
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function genId(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function fmtMoney(n){ return (Number(n)||0).toLocaleString('ru-RU'); }
+function genderLabel(g){ return g==='female' ? 'девочка' : g==='male' ? 'мальчик' : ''; }
+const STATUS_OPTIONS = [
+  {key:'booking', label:'Бронь'},
+  {key:'confirmed', label:'Подтвердились'},
+  {key:'agreed', label:'Согласовано'},
+  {key:'progress', label:'В процессе'},
+  {key:'done', label:'Пройдено'}
+];
+function statusLabel(key){ const f = STATUS_OPTIONS.find(s=>s.key===key); return f ? f.label : 'Бронь'; }
+function statusClass(key){ return 'status-'+(STATUS_OPTIONS.some(s=>s.key===key) ? key : 'booking'); }
+function telHref(phone){ return 'tel:' + String(phone||'').replace(/[^\d+]/g,''); }
+function getPhones(client){
+  if(client.phones && client.phones.length) return client.phones;
+  return client.phone ? [{label:'', phone:client.phone}] : [];
+}
+function getAddresses(client){
+  if(client.addresses && client.addresses.length) return client.addresses;
+  return client.street ? [{label:'', street:client.street, apartment:client.apartment, entrance:client.entrance, floor:client.floor}] : [];
+}
+const SOURCES = ['Сарафанка','Инстаграм','Карина'];
+const DISTRICTS = ['Левый берег','Чкаловск','Центр','Нефтяники','Амур','ЖД','Старый Кировск','Другое'];
+function clientDistricts(client){
+  const list = [];
+  getAddresses(client).forEach(a=>{ if(a.district && !list.includes(a.district)) list.push(a.district); });
+  return list;
+}
+function mapUrl(addr){
+  const parts = [addr.street, addr.apartment ? 'кв '+addr.apartment : ''].filter(Boolean).join(' ');
+  return 'https://2gis.ru/search/' + encodeURIComponent(parts);
+}
+function addressText(addr){
+  return [addr.street, addr.apartment?'кв. '+addr.apartment:'', addr.entrance?'под. '+addr.entrance:'', addr.floor?'эт. '+addr.floor:''].filter(Boolean).join(', ');
+}
+function copyToClipboard(text){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch(e){}
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return true;
+  }catch(e){ return false; }
+}
+function openPhoneSheet(phone, label, name){
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2 style="margin-bottom:2px;">${escapeHtml(phone)}</h2>
+    <div class="sub" style="margin-bottom:14px;">${[label, name].filter(Boolean).map(escapeHtml).join(' · ')}</div>
+    <a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;" href="${telHref(phone)}">Позвонить</a>
+    <button type="button" class="btn btn-outline" id="phone-copy-btn" data-phone="${escapeHtml(phone)}" style="width:100%;margin-bottom:8px;">Скопировать номер</button>
+    <button type="button" class="btn btn-ghost" data-action="close-sheet" style="width:100%;">Закрыть</button>
+  `);
+  document.getElementById('phone-copy-btn').addEventListener('click', (e)=>{
+    const b = e.currentTarget;
+    const ok = copyToClipboard(b.dataset.phone);
+    b.textContent = ok ? 'Скопировано ✓' : 'Не удалось скопировать — выделите номер вручную';
+  });
+}
+function openMapFor(clientId, addressIndex){
+  const client = clients.find(c=>c.id===clientId);
+  if(!client) return;
+  const addrs = getAddresses(client);
+  const addrObj = addrs[addressIndex||0] || addrs[0];
+  if(!addrObj) return;
+  const addr = addressText(addrObj);
+  const copied = copyToClipboard(addr);
+  const url = mapUrl(addrObj);
+  let win = null;
+  try{ win = window.open(url, '_blank'); }catch(e){}
+  if(!win){
+    try{ window.top.location.href = url; return; }catch(e){}
+  }
+  toast((copied ? 'Адрес скопирован: ' : 'Адрес: ') + addr + (win ? '' : '. Открыть карту не удалось — вставьте адрес в 2ГИС.'));
+}
+
+/* ---------------- State ---------------- */
+let clients = [];
+let revenue = [];
+let tasks = [];
+let offDays = [];
+let offSelectMode = false;
+let offMsg = '';
+let calMonth = new Date().getMonth();
+let calYear = new Date().getFullYear();
+let activeTab = 'calendar';
+let calendarView = 'today'; // 'today' | 'month'
+let clientSearch = '';
+let clientStatusFilter = 'all';
+let clientDistrictFilter = 'all';
+let analyticsView = 'month';
+let tasksView = 'day';
+
+/* ---------------- Storage ---------------- */
+async function loadState(){
+  try{
+    const c = await window.storage.get('mj-clients', false);
+    clients = c ? JSON.parse(c.value) : [];
+  }catch(e){ if(!window.__REMOTE) clients = []; else window.__loadFailed = true; }
+  try{
+    const r = await window.storage.get('mj-revenue', false);
+    revenue = r ? JSON.parse(r.value) : [];
+  }catch(e){ if(!window.__REMOTE) revenue = []; else window.__loadFailed = true; }
+  try{
+    const t = await window.storage.get('mj-tasks', false);
+    tasks = t ? JSON.parse(t.value) : [];
+  }catch(e){ if(!window.__REMOTE) tasks = []; else window.__loadFailed = true; }
+  try{
+    const o = await window.storage.get('mj-offdays', false);
+    offDays = o ? JSON.parse(o.value) : [];
+    if(!Array.isArray(offDays)) offDays = [];
+  }catch(e){ if(!window.__REMOTE) offDays = []; else window.__loadFailed = true; }
+}
+async function saveOffDays(){
+  covCache = {key:'', map:{}};
+  try{ await window.storage.set('mj-offdays', JSON.stringify(offDays), false); }
+  catch(e){ console.error('save offdays failed', e); }
+}
+async function saveTasks(){
+  try{ await window.storage.set('mj-tasks', JSON.stringify(tasks), false); }
+  catch(e){ console.error('save tasks failed', e); }
+}
+async function saveClients(){
+  covCache = {key:'', map:{}};
+  try{ await window.storage.set('mj-clients', JSON.stringify(clients), false); }
+  catch(e){ console.error('save clients failed', e); }
+}
+async function saveRevenue(){
+  covCache = {key:'', map:{}};
+  try{ await window.storage.set('mj-revenue', JSON.stringify(revenue), false); }
+  catch(e){ console.error('save revenue failed', e); }
+}
+
+/* ---------------- Course logic ---------------- */
+function isGlobalOff(iso){ return offDays.length>0 && offDays.includes(iso); }
+function hasDirectPayment(courseId, iso){
+  return courseId!=null && revenue.some(r=>r.courseId===courseId && r.date===iso && !(Number(r.forSessions)>1));
+}
+function getCourseTimeline(course){
+  const total = course.totalSessions || 10;
+  const skip = new Set(course.skipDates || []);
+  let cursor = parseISO(course.startDate);
+  let sessionCount = 0;
+  const timeline = [];
+  let guard = 0;
+  while(sessionCount < total && guard < 500){
+    const iso = toISO(cursor);
+    if(skip.has(iso)){
+      timeline.push({date:iso, type:'off'});
+    }else if(isGlobalOff(iso) && !hasDirectPayment(course.id, iso)){
+      timeline.push({date:iso, type:'off', global:true});
+    }else{
+      sessionCount++;
+      timeline.push({date:iso, type:'session', sessionNumber:sessionCount});
+    }
+    cursor = addDays(cursor,1);
+    guard++;
+  }
+  const moves = course.moves || {};
+  let out = timeline;
+  const hasMoves = Object.keys(moves).length>0;
+  if(hasMoves){
+    out = timeline.map(t=>(t.type==='session' && moves[t.date])
+      ? {date: moves[t.date], type:'session', moved:true, from:t.date}
+      : t);
+    out.sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  if(course.interruptedFrom) out = out.filter(t=>t.date < course.interruptedFrom);
+  if(hasMoves){
+    let n = 0;
+    out.forEach(t=>{ if(t.type==='session') t.sessionNumber = ++n; });
+  }
+  return out;
+}
+let covCache = {key:'', map:{}};
+function getCoverage(clientId, courseId){
+  const key = revenue.length+':'+clients.length;
+  if(covCache.key!==key) covCache = {key, map:{}};
+  const ck = clientId+'|'+courseId;
+  if(covCache.map[ck]) return covCache.map[ck];
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  const entries = revenue.filter(r=>r.clientId===clientId && r.courseId===courseId);
+  const direct = {}, covered = {};
+  entries.forEach(r=>{ if(!(Number(r.forSessions)>1) && !direct[r.date]) direct[r.date] = r; });
+  if(course){
+    const dates = getCourseTimeline(course).filter(t=>t.type==='session').map(t=>t.date);
+    const prepays = entries.filter(r=>Number(r.forSessions)>1).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0) || a.date.localeCompare(b.date));
+    let idx = 0;
+    prepays.forEach(r=>{
+      let left = Number(r.forSessions);
+      while(left>0 && idx<dates.length){
+        const d = dates[idx++];
+        if(direct[d] || covered[d]) continue;
+        covered[d] = r; left--;
+      }
+    });
+  }
+  return covCache.map[ck] = {direct, covered};
+}
+function isSessionPaid(clientId, courseId, dateISO){
+  const cv = getCoverage(clientId, courseId);
+  return !!(cv.direct[dateISO] || cv.covered[dateISO]);
+}
+function findRevenueFor(clientId, courseId, dateISO){
+  const cv = getCoverage(clientId, courseId);
+  if(cv.direct[dateISO]) return cv.direct[dateISO];
+  const r = cv.covered[dateISO];
+  if(r) return {id:r.id, amount: Math.round(Number(r.amount)/Number(r.forSessions)), paymentType:r.paymentType, prepaid:true, forSessions:r.forSessions, date:r.date};
+  return undefined;
+}
+function sessionsIn(entries){ return entries.reduce((s,r)=>s+(Number(r.forSessions)>1?Number(r.forSessions):1),0); }
+function addSkipDate(course, date){
+  course.skipDates = course.skipDates || [];
+  course.moves = course.moves || {};
+  const key = Object.keys(course.moves).find(k=>course.moves[k]===date);
+  if(key!==undefined){
+    delete course.moves[key];
+    if(course.timeOverrides) delete course.timeOverrides[date];
+    if(course.addressOverrides) delete course.addressOverrides[date];
+    date = key;
+  }else if(Object.prototype.hasOwnProperty.call(course.moves, date)){
+    return false;
+  }
+  if(!course.skipDates.includes(date)) course.skipDates.push(date);
+  return true;
+}
+function moveSession(clientId, courseId, fromDate, toDate, time, dry){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return 'Курс не найден';
+  if(!toDate) return 'Укажите новую дату';
+  if(toDate===fromDate) return 'Выберите другую дату';
+  if(toDate<todayISO()) return 'Нельзя перенести на прошедшую дату';
+  if(isGlobalOff(toDate)) return 'В этот день у вас выходной';
+  course.moves = course.moves || {};
+  let key = Object.keys(course.moves).find(k=>course.moves[k]===fromDate);
+  if(key===undefined) key = fromDate;
+  const tl = getCourseTimeline(course);
+  const returning = (toDate===key);
+  if(!returning){
+    if(tl.some(t=>t.date===toDate) || (course.skipDates||[]).includes(toDate)) return 'В этот день у клиента уже есть сеанс или выходной';
+  }
+  if(!returning){
+    const n = countOnDate(toDate, null);
+    if(n>=CAP_MAX) return capacityMessage({level:'block', date:toDate, count:n});
+  }
+  if(dry) return null;
+  if(returning) delete course.moves[key]; else course.moves[key] = toDate;
+  ['timeOverrides','addressOverrides'].forEach(f=>{
+    if(course[f] && course[f][fromDate]!==undefined){
+      course[f][toDate] = course[f][fromDate];
+      delete course[f][fromDate];
+    }
+  });
+  if(time){ course.timeOverrides = course.timeOverrides || {}; course.timeOverrides[toDate] = time; }
+  saveClients();
+  return null;
+}
+function clientBalance(client){
+  const today = todayISO();
+  let debtCount = 0, aheadLeft = 0, aheadTotal = 0;
+  (client.courses||[]).forEach(course=>{
+    const cv = getCoverage(client.id, course.id);
+    getCourseTimeline(course).forEach(t=>{
+      if(t.type!=='session') return;
+      const paid = !!(cv.direct[t.date] || cv.covered[t.date]);
+      const passed = isSessionPassed(client, course, t.date);
+      if(!paid && passed) debtCount++;
+      if(cv.covered[t.date]){ aheadTotal++; if(!passed) aheadLeft++; }
+    });
+  });
+  return {debtCount, debtSum: debtCount*Number(client.price||0), aheadLeft, aheadTotal};
+}
+function clientBalanceHtml(client, compact){
+  const b = clientBalance(client);
+  const parts = [];
+  if(b.debtCount) parts.push(`<span class="bal-debt">Долг: ${fmtMoney(b.debtSum)} ₽ (${b.debtCount} ${ruPlural(b.debtCount,'сеанс','сеанса','сеансов')})</span>`);
+  if(b.aheadLeft) parts.push(`<span class="bal-ahead">Оплачено вперёд: ${b.aheadLeft} ${ruPlural(b.aheadLeft,'сеанс','сеанса','сеансов')}</span>`);
+  if(!parts.length) return '';
+  return `<div class="bal-row ${compact?'compact':''}">${parts.join('')}</div>`;
+}
+function isCourseComplete(client, course){
+  const tl = getCourseTimeline(course).filter(t=>t.type==='session');
+  return tl.every(t=>isSessionPaid(client.id, course.id, t.date));
+}
+function activeClients(){ return clients.filter(c=>!c.deleted); }
+function latestCourse(client){
+  const cs = client.courses||[];
+  return cs.length ? cs[cs.length-1] : null;
+}
+function addMonthsISO(iso, n){
+  const d = parseISO(iso);
+  d.setMonth(d.getMonth()+n);
+  return toISO(d);
+}
+function getCourseEndDate(course){
+  const tl = getCourseTimeline(course);
+  return tl.length ? tl[tl.length-1].date : course.startDate;
+}
+function getFollowUpClients(){
+  const today = todayISO();
+  return activeClients().filter(c=>{
+    const lc = latestCourse(c);
+    if(!lc) return false;
+    if((lc.status||'booking')!=='done') return false;
+    if(lc.followUpHandled) return false;
+    const threshold = addMonthsISO(getCourseEndDate(lc), 2);
+    return today >= threshold;
+  });
+}
+const CAP_WARN = 8, CAP_MAX = 11;
+function countOnDate(iso, excludeCourseId){
+  let n = 0;
+  activeClients().forEach(cl=>(cl.courses||[]).forEach(co=>{
+    if(co.id===excludeCourseId) return;
+    if(getCourseTimeline(co).some(t=>t.date===iso && t.type==='session')) n++;
+  }));
+  return n;
+}
+function courseDates(startDate, total){
+  if(!startDate) return [];
+  return getCourseTimeline({startDate, totalSessions: Math.max(1, Number(total)||10), skipDates:[]}).filter(t=>t.type==='session').map(t=>t.date);
+}
+function capacityCheck(dates, excludeCourseId){
+  let warn = null;
+  for(const d of dates){
+    const n = countOnDate(d, excludeCourseId);
+    if(n>=CAP_MAX) return {level:'block', date:d, count:n};
+    if(n>=CAP_WARN && !warn) warn = {level:'warn', date:d, count:n};
+  }
+  return warn;
+}
+function dayLoadHtml(n){
+  if(n<CAP_WARN) return '';
+  const who = n+' '+ruPlural(n,'человек','человека','человек');
+  return n>=CAP_MAX
+    ? `<div class="cap-hint block" style="margin:0 0 10px;">На этот день записано ${who} — больше записывать нельзя.</div>`
+    : `<div class="cap-hint warn" style="margin:0 0 10px;">Внимание: на этот день записано ${who}.</div>`;
+}
+function capacityMessage(res){
+  if(!res) return '';
+  const who = res.count+' '+ruPlural(res.count,'человек','человека','человек');
+  return res.level==='block'
+    ? 'На '+fmtDateLong(res.date)+' уже записано '+who+' — больше записывать нельзя. Выберите другую дату.'
+    : 'Внимание: на '+fmtDateLong(res.date)+' уже записано '+who+'.';
+}
+function bindCapacityHint(form, hintEl, excludeCourseId){
+  const upd = ()=>{
+    const res = capacityCheck(courseDates(form.querySelector('[name=startDate]').value, form.querySelector('[name=totalSessions]').value), excludeCourseId);
+    const sd = form.querySelector('[name=startDate]').value;
+    const offNote = isGlobalOff(sd) ? 'Эта дата — ваш выходной: курс начнётся со следующего рабочего дня. ' : '';
+    hintEl.textContent = offNote + capacityMessage(res);
+    hintEl.className = 'cap-hint' + (res ? ' '+res.level : (offNote ? ' warn' : ' hidden'));
+  };
+  form.querySelector('[name=startDate]').addEventListener('input', upd);
+  form.querySelector('[name=startDate]').addEventListener('change', upd);
+  form.querySelector('[name=totalSessions]').addEventListener('input', upd);
+  upd();
+}
+function getSessionTime(client, course, date){
+  if(course.timeOverrides && course.timeOverrides[date]) return course.timeOverrides[date];
+  return client.time || '';
+}
+function getSessionAddress(client, course, date){
+  const addrs = getAddresses(client);
+  if(!addrs.length) return null;
+  const idx = (course.addressOverrides && course.addressOverrides[date]!==undefined) ? course.addressOverrides[date] : 0;
+  return addrs[idx] || addrs[0];
+}
+function getSessionAddressIndex(client, course, date){
+  const addrs = getAddresses(client);
+  const idx = (course.addressOverrides && course.addressOverrides[date]!==undefined) ? course.addressOverrides[date] : 0;
+  return Math.min(idx, addrs.length-1);
+}
+function isSessionPassed(client, course, iso){
+  const today = todayISO();
+  if(iso < today) return true;
+  if(iso > today) return false;
+  const t = getSessionTime(client, course, iso);
+  if(!/^\d{1,2}:\d{2}/.test(t||'')) return false;
+  const [h,m] = t.split(':').map(Number);
+  const now = new Date();
+  return now.getHours()*60+now.getMinutes() >= h*60+m;
+}
+function getUnpaidPassedSessions(){
+  const res = [];
+  activeClients().forEach(client=>{
+    (client.courses||[]).forEach(course=>{
+      getCourseTimeline(course).forEach(t=>{
+        if(t.type!=='session') return;
+        if(!isSessionPassed(client, course, t.date)) return;
+        if(isSessionPaid(client.id, course.id, t.date)) return;
+        res.push({client, course, date:t.date, sessionNumber:t.sessionNumber, total:course.totalSessions});
+      });
+    });
+  });
+  res.sort((a,b)=>a.date.localeCompare(b.date));
+  return res;
+}
+function buildUnpaidBlockHtml(){
+  const list = getUnpaidPassedSessions();
+  if(!list.length) return '';
+  return foldHtml('unpaid', `<span class="bang">!</span> Массаж прошёл, а оплата не записана`, list.length, `
+    ${list.map(u=>`<button type="button" class="unpaid-row" data-action="log-payment" data-client="${u.client.id}" data-course="${u.course.id}" data-date="${u.date}">
+      <span>${fmtDateLong(u.date)} · ${escapeHtml(u.client.parentName)} · ${escapeHtml(u.client.childName)}</span>
+      <b>${fmtMoney(u.client.price)} ₽</b>
+    </button>`).join('')}
+  `, 'unpaid-card');
+}
+function getSessionsForDate(iso){
+  const results = [];
+  activeClients().forEach(client=>{
+    (client.courses||[]).forEach(course=>{
+      const tl = getCourseTimeline(course);
+      const hit = tl.find(t=>t.date===iso && t.type==='session');
+      if(hit) results.push({client, course, sessionNumber:hit.sessionNumber, total: course.totalSessions, moved: !!hit.moved, from: hit.from, time: getSessionTime(client, course, iso)});
+    });
+  });
+  results.sort((a,b)=> (a.time||'99:99').localeCompare(b.time||'99:99'));
+  return results;
+}
+/* ---------------- Tasks logic ---------------- */
+function getTasksForDate(iso){
+  return tasks.filter(t=>t.date===iso).sort((a,b)=>{
+    if(!!a.done!==!!b.done) return a.done ? 1 : -1;
+    return (a.time||'99:99').localeCompare(b.time||'99:99');
+  });
+}
+function getOverdueTasks(){
+  const today = todayISO();
+  return tasks.filter(t=>!t.done && t.date && t.date<today).sort((a,b)=>a.date.localeCompare(b.date));
+}
+function getNoDeadlineTasks(){
+  // Без срока: невыполненные + выполненные сегодня (чтобы можно было снять отметку, если нажали случайно)
+  const today = todayISO();
+  return tasks.filter(t=>{
+    if(t.date) return false;
+    if(!t.done) return true;
+    return t.doneAt && toISO(new Date(t.doneAt))===today;
+  }).sort((a,b)=> (!!a.done===!!b.done) ? 0 : (a.done ? 1 : -1));
+}
+function pendingTasksCount(iso){
+  return tasks.filter(t=>t.date===iso && !t.done).length;
+}
+const REPEAT_LABELS = {daily:'каждый день', weekly:'каждую неделю', monthly:'каждый месяц'};
+function nextRepeatDate(iso, repeat){
+  const d = parseISO(iso);
+  if(repeat==='daily') d.setDate(d.getDate()+1);
+  else if(repeat==='weekly') d.setDate(d.getDate()+7);
+  else if(repeat==='monthly'){
+    const day = d.getDate();
+    d.setDate(1); d.setMonth(d.getMonth()+1);
+    const last = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+    d.setDate(Math.min(day, last));
+  }
+  return toISO(d);
+}
+function taskRowHtml(t, showDate){
+  const fromKarina = t.author==='karina';
+  return `<div class="task-row ${t.done?'done':''}">
+    <button type="button" class="task-check ${t.done?'checked':''}" data-action="toggle-task" data-id="${t.id}" aria-label="Отметить выполненной">${t.done?'✓':''}</button>
+    <div class="task-body" data-action="edit-task" data-id="${t.id}">
+      <div class="task-title">${escapeHtml(t.title)}</div>
+      <div class="task-meta">
+        ${showDate && t.date ? `<span>срок: ${fmtDateLong(t.date)}</span>` : ''}
+        ${t.time ? `<span>${escapeHtml(t.time)}</span>` : ''}
+        ${t.repeat && REPEAT_LABELS[t.repeat] ? `<span>↻ ${REPEAT_LABELS[t.repeat]}</span>` : ''}
+        ${fromKarina ? `<span class="task-from">от Карины</span>` : ''}
+      </div>
+      ${t.note ? `<div class="task-note">${escapeHtml(t.note)}</div>` : ''}
+    </div>
+  </div>`;
+}
+function foldHtml(key, title, count, bodyHtml, extraCls){
+  return `<div class="block ${extraCls||''}" data-block="${key}">
+    <div class="block-head">
+      <span class="fold-title">${title}</span>
+      ${count!==null && count!==undefined && count!=='' ? `<span class="fold-count">${count}</span>` : ''}
+    </div>
+    <div class="block-body">${bodyHtml}</div>
+  </div>`;
+}
+
+function dayStatus(iso){
+  const sessions = getSessionsForDate(iso);
+  if(!sessions.length) return null;
+  const paidCount = sessions.filter(s=>isSessionPaid(s.client.id,s.course.id,iso)).length;
+  if(paidCount===0) return 'pending';
+  if(paidCount===sessions.length) return 'paid';
+  return 'mixed';
+}
+
+/* ---------------- Render root ---------------- */
+function render(){
+  covCache = {key:'', map:{}};
+  const app = document.getElementById('app');
+  const titles = {calendar:'Календарь', clients:'Клиенты', income:'Доходы', analytics:'Аналитика', tasks:'Задачи'};
+  const tabTitle = titles[activeTab];
+  const unpaidCount = getUnpaidPassedSessions().length;
+  const tb = tasksBadge();
+  app.innerHTML = `
+    <header class="top">
+      <h1>Дневник массажиста</h1>
+      ${activeTab==='calendar'
+        ? `<button type="button" class="hdr-search" data-action="open-search" aria-label="Найти клиента"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
+           <div class="view-toggle" role="group" aria-label="Вид календаря">
+             <button type="button" data-action="show-today-view" class="${calendarView==='today'?'active':''}">День</button>
+             <button type="button" data-action="show-month-view" class="${calendarView==='month'?'active':''}">Месяц</button>
+           </div>`
+        : activeTab==='tasks'
+        ? `<div class="view-toggle" role="group" aria-label="Вид задач">
+             <button type="button" data-action="tasks-view" data-view="day" class="${tasksView==='day'?'active':''}">День</button>
+             <button type="button" data-action="tasks-view" data-view="month" class="${tasksView==='month'?'active':''}">Месяц</button>
+           </div>`
+        : `<div class="tab-label">${tabTitle}</div>`}
+    </header>
+    <main id="main"></main>
+    <nav class="tabbar">
+      <button data-action="tab" data-tab="calendar" class="${activeTab==='calendar'?'active':''}">
+        ${iconCalendar()}<span>Календарь</span>${unpaidCount ? `<span class="bang">!</span>` : ''}
+      </button>
+      <button data-action="tab" data-tab="tasks" class="${activeTab==='tasks'?'active':''}">
+        ${iconTasks()}<span>Задачи</span>${tb.n ? `<span class="tab-badge ${tb.red?'red':''}">${tb.n}</span>` : ''}
+      </button>
+      <button data-action="tab" data-tab="clients" class="${activeTab==='clients'?'active':''}">
+        ${iconPeople()}<span>Клиенты</span>
+      </button>
+      <button data-action="tab" data-tab="income" class="${activeTab==='income'?'active':''}">
+        ${iconCoin()}<span>Доходы</span>
+      </button>
+      <button data-action="tab" data-tab="analytics" class="${activeTab==='analytics'?'active':''}">
+        ${iconChart()}<span>Аналитика</span>
+      </button>
+
+    </nav>
+    ${activeTab==='clients' ? `<button class="fab" data-action="add-client">+</button>` : ''}
+    ${activeTab==='income' ? `<button class="fab" data-action="add-income">+</button>` : ''}
+    ${activeTab==='tasks' ? `<button class="fab" data-action="add-task">+</button>` : ''}
+  `;
+  const main = document.getElementById('main');
+  if(activeTab==='calendar') main.innerHTML = renderCalendar();
+  else if(activeTab==='clients') main.innerHTML = renderClients();
+  else if(activeTab==='income') main.innerHTML = renderIncome();
+  else if(activeTab==='tasks') main.innerHTML = renderTasks();
+  else main.innerHTML = renderAnalytics();
+}
+
+function iconCalendar(){return `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>`;}
+function iconPeople(){return `<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c2.6.4 4.5 2.6 4.5 5.3"/></svg>`;}
+function iconCoin(){return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M9.3 9.6c0-1.2 1.2-2.1 2.7-2.1s2.7.8 2.7 1.9c0 2.7-5.4 1.2-5.4 3.9 0 1.1 1.2 1.9 2.7 1.9s2.7-.9 2.7-2.1"/></svg>`;}
+function iconTasks(){return `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.8 2.8L16 9.6"/></svg>`;}
+function iconChart(){return `<svg viewBox="0 0 24 24"><path d="M4 20V10M11 20V4M18 20v-7"/><path d="M3 20h18"/></svg>`;}
+
+
+/* ---------------- Calendar tab ---------------- */
+function openTaskDaySheet(iso){
+  const list = getTasksForDate(iso);
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>${fmtDateLong(iso)}</h2>
+    <div class="sub" style="margin-bottom:10px;">${list.length ? 'Задач: '+list.length : 'Задач на этот день нет'}</div>
+    ${list.map(t=>taskRowHtml(t,false)).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" style="margin:6px 0 10px;" data-action="add-task" data-date="${iso}">+ Задача на этот день</button>
+  `);
+}
+function renderTasksMonth(){
+  const first = new Date(calYear, calMonth, 1);
+  let startOffset = first.getDay()-1; if(startOffset<0) startOffset=6;
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const todayIso = todayISO();
+  let cells = '';
+  for(let i=0;i<startOffset;i++) cells += `<div class="cal-cell empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const iso = calYear+'-'+pad(calMonth+1)+'-'+pad(d);
+    const list = tasks.filter(t=>t.date===iso);
+    const pending = list.filter(t=>!t.done).length;
+    const late = pending && iso<todayIso;
+    cells += `<div class="cal-cell ${iso===todayIso?'today':''}" data-action="open-task-day" data-date="${iso}">
+      <span class="num">${d}</span>
+      <span class="dots-row">
+        ${pending ? `<span class="tcount ${late?'late':''}">${pending}</span>` : (list.length ? `<span class="dot paid"></span>` : '')}
+      </span>
+    </div>`;
+  }
+  const nodl = getNoDeadlineTasks();
+  return `
+    <div class="cal-header">
+      <button data-action="prev-month">‹</button>
+      <div class="month">${MONTHS[calMonth]} ${calYear}</div>
+      <button data-action="next-month">›</button>
+    </div>
+    <div class="weekdays">${WEEKDAYS.map(w=>`<span>${w}</span>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <div style="margin-top:16px;">${foldHtml('nodeadline', 'Без срока', nodl.filter(t=>!t.done).length||'', `
+      ${nodl.length ? nodl.map(t=>taskRowHtml(t,false)).join('') : `<div class="task-empty">Задач без срока нет</div>`}
+      <button type="button" class="btn btn-ghost btn-sm" style="margin:2px 0 14px;" data-action="add-task" data-nodeadline="1">+ Задача без срока</button>
+    `)}</div>
+  `;
+}
+function renderTasks(){
+  if(tasksView==='month') return renderTasksMonth();
+  const today = todayISO();
+  const overdue = getOverdueTasks();
+  const todayList = getTasksForDate(today);
+  const futureDates = [...new Set(tasks.filter(t=>t.date && t.date>today).map(t=>t.date))].sort();
+  const nodl = getNoDeadlineTasks();
+  let html = '';
+  if(overdue.length){
+    html += foldHtml('overdue', 'Просрочено', overdue.length, overdue.map(t=>taskRowHtml(t,true)).join(''), 'tasks-overdue');
+  }
+  html += foldHtml('today', 'Сегодня, '+fmtDateLong(today), todayList.filter(t=>!t.done).length||'', todayList.length ? todayList.map(t=>taskRowHtml(t,false)).join('') : `<div class="task-empty">На сегодня задач нет</div>`);
+  if(futureDates.length){
+    html += `<div class="block-head" style="margin-top:6px;">Дальше</div>` + futureDates.map(dt=>`
+      <div class="tasks-date">${fmtDateLong(dt)}</div>
+      ${getTasksForDate(dt).map(t=>taskRowHtml(t,false)).join('')}`).join('');
+  }
+  html += foldHtml('nodeadline', 'Без срока', nodl.filter(t=>!t.done).length||'', `
+    ${nodl.length ? nodl.map(t=>taskRowHtml(t,false)).join('') : `<div class="task-empty">Задач без срока нет</div>`}
+    <button type="button" class="btn btn-ghost btn-sm" style="margin:2px 0 14px;" data-action="add-task" data-nodeadline="1">+ Задача без срока</button>
+  `);
+  return html;
+}
+function tasksBadge(){
+  const today = todayISO();
+  const overdue = getOverdueTasks().length;
+  const todayOpen = getTasksForDate(today).filter(t=>!t.done).length;
+  return {n: overdue+todayOpen, red: overdue>0};
+}
+function renderCalendar(){
+  if(calendarView==='today') return renderTodayView();
+  return renderMonthView();
+}
+
+function renderTodayView(){
+  const iso = todayISO();
+  const sessions = getSessionsForDate(iso);
+  const rows = foldHtml('sessions', 'Сеансы', sessions.length||'', buildSessionRowsHtml(iso));
+  const todayRevenue = revenue.filter(r=>r.date===iso).reduce((s,r)=>s+Number(r.amount),0);
+  return `
+    <div class="cal-header">
+      <div class="month">Сегодня, ${fmtDateLong(iso)}</div>
+    </div>
+    <div class="sub" style="margin-bottom:10px;">${sessions.length ? sessions.length+' сеанс(ов)' : ''}${todayRevenue>0 ? ' &nbsp;·&nbsp; заработано сегодня: '+fmtMoney(todayRevenue)+' ₽' : ''}</div>
+    ${dayLoadHtml(sessions.length)}
+    ${rows}
+    ${buildUnpaidBlockHtml()}
+    <button class="btn btn-outline" style="margin-top:6px;" data-action="add-income" data-date="${iso}">+ Произвольный доход за этот день</button>
+  `;
+}
+
+function renderMonthView(){
+  const first = new Date(calYear, calMonth, 1);
+  let startOffset = first.getDay()-1; if(startOffset<0) startOffset=6;
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const todayIso = todayISO();
+  const unpaidDays = new Set(getUnpaidPassedSessions().map(u=>u.date));
+
+  let cells = '';
+  for(let i=0;i<startOffset;i++) cells += `<div class="cal-cell empty"></div>`;
+  for(let d=1; d<=daysInMonth; d++){
+    const iso = calYear+'-'+pad(calMonth+1)+'-'+pad(d);
+    const status = dayStatus(iso);
+    const isToday = iso===todayIso;
+    const isOff = isGlobalOff(iso);
+    const selectable = offSelectMode && iso>=todayIso;
+    cells += `<div class="cal-cell ${isToday?'today':''} ${isOff?'offday':''} ${offSelectMode && !selectable?'disabled':''}" data-action="${offSelectMode ? (selectable?'toggle-offday':'noop') : 'open-day'}" data-date="${iso}">
+      <span class="num">${d}</span>
+      <span class="dots-row">
+        ${isOff ? `<span class="off-tag">вых.</span>` : ''}
+        ${status ? `<span class="dot ${status}"></span>` : ''}
+        ${unpaidDays.has(iso) ? `<span class="bang">!</span>` : ''}
+      </span>
+    </div>`;
+  }
+
+  return `
+    <div class="cal-header">
+      <button data-action="prev-month">‹</button>
+      <div class="month">${MONTHS[calMonth]} ${calYear}</div>
+      <button data-action="next-month">›</button>
+    </div>
+    ${offSelectMode
+      ? `<div class="off-mode-card">
+           <div style="font-weight:600;margin-bottom:4px;">Выбор выходных</div>
+           <div class="sub" style="margin-bottom:8px;">Нажимайте на даты: они станут вашими выходными. Клиентов туда не записываем, сеансы на эти дни сдвигаются, а курсы заканчиваются позже. Повторное нажатие снимает выходной.</div>
+           ${offMsg ? `<div class="off-msg">${escapeHtml(offMsg)}</div>` : ''}
+           <button type="button" class="btn btn-primary btn-sm" data-action="off-mode-off">Готово</button>
+         </div>`
+      : `<button type="button" class="btn btn-outline btn-sm" style="margin-bottom:10px;" data-action="off-mode-on">Выбрать выходные</button>`}
+    <div class="weekdays">${WEEKDAYS.map(w=>`<span>${w}</span>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <div style="margin-top:16px;">${buildUnpaidBlockHtml()}</div>
+  `;
+}
+
+function ruPlural(n, one, few, many){
+  const m10 = n % 10, m100 = n % 100;
+  if(m10===1 && m100!==11) return one;
+  if(m10>=2 && m10<=4 && (m100<12 || m100>14)) return few;
+  return many;
+}
+function getOffEntriesForDate(iso){
+  const res = [];
+  activeClients().forEach(client=>{
+    (client.courses||[]).forEach(course=>{
+      const hit = getCourseTimeline(course).find(t=>t.date===iso && t.type==='off' && !t.global);
+      if(hit) res.push({client, course});
+    });
+  });
+  return res;
+}
+function refreshAfterDayChange(iso){
+  const sheetOpen = isSheetOpen();
+  render();
+  if(sheetOpen) openDaySheet(iso);
+}
+function markDayOffForAll(iso){
+  const sessions = getSessionsForDate(iso);
+  const unpaid = sessions.filter(s=>!isSessionPaid(s.client.id, s.course.id, iso));
+  if(!unpaid.length) return;
+  const paidCount = sessions.length - unpaid.length;
+  const n = unpaid.length;
+  const msg = 'Поставить выходной на ' + fmtDateLong(iso) + ' для ' + n + ' ' + ruPlural(n,'клиента','клиентов','клиентов') + '? Курсы сдвинутся на день.'
+    + (paidCount ? '\n(' + paidCount + ' уже оплачено — их не трогаю.)' : '');
+  const wasOpen = isSheetOpen();
+  askConfirm('Выходной для всех?', msg, 'Да, поставить', ()=>{
+    unpaid.forEach(s=>{ addSkipDate(s.course, iso); });
+    saveClients();
+    render();
+    if(wasOpen) openDaySheet(iso); else closeSheet();
+  }, false);
+}
+function restoreDayForAll(iso){
+  const list = getOffEntriesForDate(iso);
+  if(!list.length) return;
+  list.forEach(({course})=>{
+    course.skipDates = (course.skipDates||[]).filter(d=>d!==iso);
+  });
+  saveClients();
+  refreshAfterDayChange(iso);
+}
+function buildDayOffBlockHtml(iso){
+  const sessions = getSessionsForDate(iso);
+  const unpaid = sessions.filter(s=>!isSessionPaid(s.client.id, s.course.id, iso));
+  const offList = getOffEntriesForDate(iso);
+  let html = '';
+  if(unpaid.length>=2){
+    html += `<button type="button" class="btn btn-outline btn-sm" style="margin-bottom:8px;" data-action="day-off-all" data-date="${iso}">Выходной для всех (${unpaid.length})</button>`;
+  }
+  if(offList.length){
+    const names = offList.map(o=>escapeHtml(o.client.childName||o.client.parentName)).join(', ');
+    html += `<div class="dayoff-card">
+      <div style="margin-bottom:8px;"><strong>Выходной:</strong> ${names}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="day-off-restore" data-date="${iso}">Вернуть сеансы на этот день</button>
+    </div>`;
+  }
+  return html ? `<div style="margin-bottom:6px;">${html}</div>` : '';
+}
+
+function buildSessionRowsHtml(iso){
+  const sessions = getSessionsForDate(iso);
+  const dayOff = buildDayOffBlockHtml(iso);
+  const offBanner = isGlobalOff(iso) ? `<div class="offday-banner">Выходной день — новых клиентов на эту дату не записываем.</div>` : '';
+  if(sessions.length===0){
+    return offBanner + dayOff + `<div class="empty-state" style="padding:24px 10px;"><div class="big">${isGlobalOff(iso) ? 'Выходной день' : 'На этот день сеансов нет'}</div></div>`;
+  }
+  return offBanner + dayOff + sessions.map(s=>{
+    const paid = findRevenueFor(s.client.id, s.course.id, iso);
+    const addrs = getAddresses(s.client);
+    const phones = getPhones(s.client);
+    const selAddr = getSessionAddress(s.client, s.course, iso);
+    const idx = getSessionAddressIndex(s.client, s.course, iso);
+    const timeLabel = (s.time ? escapeHtml(s.time) : 'время не указано') + (s.course.timeOverrides && s.course.timeOverrides[iso] ? ' · перенесено' : '');
+    const statusMark = paid ? `<span class="paid-mark" title="Оплачено">✓</span>` : (isSessionPassed(s.client, s.course, iso) ? `<span class="bang" title="Оплата не записана">!</span>` : '');
+    const addrText = selAddr ? ((selAddr.label ? escapeHtml(selAddr.label)+': ' : '') + escapeHtml(selAddr.street || selAddr.district || 'адрес не указан') + (selAddr.apartment ? ', кв. '+escapeHtml(selAddr.apartment) : '') + (selAddr.entrance ? ', под. '+escapeHtml(selAddr.entrance) : '') + (selAddr.floor ? ', эт. '+escapeHtml(selAddr.floor) : '')) : '';
+    return `<div class="session-row">
+      <div class="sess-line">
+        <button type="button" class="sess-time" data-action="edit-time" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">${s.time ? escapeHtml(s.time) : '—:—'}</button>
+        ${selAddr
+          ? `<button type="button" class="sess-addr" data-action="open-map" data-client="${s.client.id}" data-address="${idx}">${addrText}</button>`
+          : `<span class="sess-addr none">${escapeHtml(s.client.childName || s.client.parentName)}</span>`}
+        ${statusMark}
+        <button type="button" class="sess-more" data-action="toggle-details" aria-label="Детали сеанса"><span class="fold-arrow">▾</span></button>
+      </div>
+      <div class="sess-details">
+        <div class="sess-info">${s.moved ? 'Перенесён с '+fmtDateLong(s.from)+' · ' : ''}${s.course.timeOverrides && s.course.timeOverrides[iso] ? 'Время изменено · ' : ''}Сеанс ${s.sessionNumber} из ${s.total} &nbsp;·&nbsp; ${fmtMoney(s.client.price)} ₽${addrs.length>1 ? ` &nbsp;·&nbsp; <button type="button" class="sess-change" data-action="edit-address" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">сменить адрес</button>` : ''}</div>
+        <div class="sess-names">${escapeHtml(s.client.parentName)} · ${escapeHtml(s.client.childName)}${genderLabel(s.client.gender) ? ' ('+genderLabel(s.client.gender)+')' : ''}</div>
+        ${phones.length ? `<div class="phone-pills">${phones.map(p=>`<button type="button" class="phone-pill" data-action="phone" data-phone="${escapeHtml(p.phone)}" data-label="${escapeHtml(p.label||'')}" data-name="${escapeHtml(s.client.parentName)}">${p.label ? escapeHtml(p.label)+': ' : ''}${escapeHtml(p.phone)}</button>`).join('')}</div>` : ''}
+        <div class="row-btns sess-actions">
+          ${paid
+            ? `<button class="btn btn-ghost btn-sm" data-action="edit-payment" data-rev="${paid.id}">${paid.prepaid ? 'Оплачено вперёд ('+paid.forSessions+' сеансов)' : 'Оплачено: '+fmtMoney(paid.amount)+' ₽ · '+(paid.paymentType==='cash'?'нал.':'перевод')}</button>
+               ${paid.prepaid ? `<button class="btn btn-outline btn-sm" data-action="move-session" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Перенести</button>
+               <button class="btn btn-danger btn-sm" data-action="interrupt-course" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Завершить</button>` : ''}`
+            : `<button class="btn btn-accent btn-sm" data-action="log-payment" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Записать оплату</button>
+               <button class="btn btn-outline btn-sm" data-action="move-session" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Перенести</button>
+               <button class="btn btn-outline btn-sm" data-action="mark-off" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Выходной</button>
+               <button class="btn btn-danger btn-sm" data-action="interrupt-course" data-client="${s.client.id}" data-course="${s.course.id}" data-date="${iso}">Завершить</button>`
+          }
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openDaySheet(iso){
+  const sessions = getSessionsForDate(iso);
+  const rows = foldHtml('sessions', 'Сеансы', sessions.length||'', buildSessionRowsHtml(iso));
+
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>${fmtDateLong(iso)}</h2>
+    <div class="sub">${sessions.length ? sessions.length+' сеанс(ов)' : ''}</div>
+    ${dayLoadHtml(sessions.length)}
+    ${rows}
+    <button class="btn btn-outline" style="margin-top:6px;" data-action="add-income" data-date="${iso}">+ Произвольный доход за этот день</button>
+  `);
+}
+
+/* ---------------- Clients tab ---------------- */
+function renderClients(){
+  const filtered = activeClients().filter(c=>{
+    if(clientStatusFilter!=='all'){
+      const lc = latestCourse(c);
+      const st = lc ? (lc.status||'booking') : null;
+      if(st!==clientStatusFilter) return false;
+    }
+    if(clientDistrictFilter!=='all'){
+      const ds = clientDistricts(c);
+      if(clientDistrictFilter==='none'){ if(ds.length) return false; }
+      else if(!ds.includes(clientDistrictFilter)) return false;
+    }
+    if(!clientSearch) return true;
+    const q = clientSearch.toLowerCase();
+    return (c.parentName||'').toLowerCase().includes(q) || (c.childName||'').toLowerCase().includes(q) || (c.phone||'').includes(q);
+  }).sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+
+  const followUps = getFollowUpClients();
+  const followUpHtml = followUps.length ? `
+    <div class="card" style="border-color:var(--accent);background:var(--accent-soft);margin-bottom:14px;">
+      <div style="font-weight:700;color:var(--accent-ink);margin-bottom:8px;">Пора предложить новый курс</div>
+      ${followUps.map(c=>{
+        const lc = latestCourse(c);
+        const endDate = getCourseEndDate(lc);
+        return `<div style="background:var(--surface);border-radius:12px;padding:10px 12px;margin-bottom:8px;">
+          <div style="font-weight:600;font-size:13.5px;">${escapeHtml(c.parentName)} · ${escapeHtml(c.childName)}</div>
+          <div style="font-size:12px;color:var(--ink-faint);margin-bottom:8px;">Курс завершён ${fmtDateLong(endDate)}</div>
+          <div class="row-btns">
+            <a href="${telHref(c.phone)}" class="btn btn-outline btn-sm" style="text-decoration:none;">Позвонить</a>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="dismiss-followup" data-client="${c.id}">Скрыть</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  ` : '';
+
+  const filterChips = ['all', ...STATUS_OPTIONS.map(s=>s.key)].map(key=>{
+    const label = key==='all' ? 'Все' : statusLabel(key);
+    const active = clientStatusFilter===key;
+    return `<button type="button" data-action="filter-status" data-status="${key}" class="btn btn-sm ${active?'btn-primary':'btn-outline'}" style="width:100%;padding:8px 4px;">${label}</button>`;
+  }).join('');
+  const filterBar = `<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-bottom:10px;">${filterChips}</div>`;
+
+  const districtSelect = `<select data-action="filter-district" style="margin-bottom:10px;">
+    <option value="all"${clientDistrictFilter==='all'?' selected':''}>Все районы</option>
+    ${DISTRICTS.map(d=>`<option value="${escapeHtml(d)}"${clientDistrictFilter===d?' selected':''}>${escapeHtml(d)}</option>`).join('')}
+    <option value="none"${clientDistrictFilter==='none'?' selected':''}>Район не указан</option>
+  </select>`;
+
+  const searchBar = `<input type="text" placeholder="Поиск по имени или телефону" value="${escapeHtml(clientSearch)}" data-action="search-clients" style="margin-bottom:14px;">`;
+
+  if(activeClients().length===0){
+    return followUpHtml + searchBar + `<div class="empty-state"><div class="big">Пока нет клиентов</div>Добавьте первого клиента, чтобы начать вести расписание.</div>` + (clients.some(c=>c.deleted) ? `<button type="button" class="btn btn-ghost btn-sm" data-action="open-deleted">Удалённые клиенты (${clients.filter(c=>c.deleted).length})</button>` : '');
+  }
+  if(filtered.length===0){
+    return followUpHtml + filterBar + districtSelect + searchBar + `<div class="empty-state">Ничего не найдено</div>`;
+  }
+
+  return followUpHtml + filterBar + districtSelect + searchBar + filtered.map(c=>{
+    const course = latestCourse(c);
+    let statusHtml = `<span class="badge status-booking">нет курса</span>`;
+    let progressText = '';
+    if(course){
+      const st = course.status || 'booking';
+      statusHtml = course.interruptedFrom ? `<span class="badge status-interrupted">Прервано</span>` : `<span class="badge ${statusClass(st)}">${statusLabel(st)}</span>`;
+      if(st==='progress'){
+        const tl = getCourseTimeline(course).filter(t=>t.type==='session');
+        const paidCount = tl.filter(t=>isSessionPaid(c.id,course.id,t.date)).length;
+        progressText = `<span>Сеанс ${Math.min(paidCount+1,course.totalSessions)} из ${course.totalSessions}</span>`;
+      }
+    }
+    return `<div class="card client-card" data-action="open-client" data-id="${c.id}">
+      <div class="top-row">
+        <div>
+          <div class="name">${escapeHtml(c.parentName)}</div>
+          <div class="child">${escapeHtml(c.childName)}${c.childAge ? ', '+escapeHtml(c.childAge) : ''}${genderLabel(c.gender) ? ', '+genderLabel(c.gender) : ''}</div>
+        </div>
+        ${statusHtml}
+      </div>
+      <div class="meta-row">
+        <span role="button" data-action="phone" data-phone="${escapeHtml(c.phone)}" data-label="" data-name="${escapeHtml(c.parentName)}" style="color:var(--accent-ink);text-decoration:underline;cursor:pointer;">${escapeHtml(c.phone)}</span>
+        <span>${fmtMoney(c.price)} ₽/сеанс</span>
+        ${c.time ? `<span>${escapeHtml(c.time)}</span>` : ''}
+        ${clientDistricts(c).length ? `<span>${clientDistricts(c).map(d=>escapeHtml(d)).join(' / ')}</span>` : ''}
+        ${(()=>{const b=clientBalance(c); return (b.debtCount?`<span class="bal-debt">долг ${fmtMoney(b.debtSum)} ₽</span>`:'') + (b.aheadLeft?`<span class="bal-ahead">вперёд: ${b.aheadLeft}</span>`:'');})()}
+        ${progressText}
+      </div>
+    </div>`;
+  }).join('') + (clients.some(c=>c.deleted) ? `<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" data-action="open-deleted">Удалённые клиенты (${clients.filter(c=>c.deleted).length})</button>` : '');
+}
+
+function normalizePhones(c){
+  if(c.phones && c.phones.length) return c.phones.map(p=>({label:p.label||'', phone:p.phone||''}));
+  return [{label:'', phone:c.phone||''}];
+}
+function normalizeAddresses(c){
+  if(c.addresses && c.addresses.length) return c.addresses.map(a=>({label:a.label||'', street:a.street||'', apartment:a.apartment||'', entrance:a.entrance||'', floor:a.floor||'', district:a.district||''}));
+  return [{label:'', street:c.street||'', apartment:c.apartment||'', entrance:c.entrance||'', floor:c.floor||'', district:''}];
+}
+
+function openClientForm(existing, siblingOf){
+  const c = existing || siblingOf || {parentName:'',price:1500,time:'',childName:'',childAge:'',gender:'',comment:''};
+  const isSibling = !existing && !!siblingOf;
+  let phones = normalizePhones(c);
+  let addresses = normalizeAddresses(c);
+
+  function phoneRowHtml(p, i){
+    return `<div class="row-btns" style="align-items:flex-end;">
+      <label class="field" style="flex:1;"><span>${i===0?'Кто (необязательно)':'Кто'}</span><input name="phoneLabel_${i}" value="${escapeHtml(p.label)}" placeholder="Мама"></label>
+      <label class="field" style="flex:2;"><span>Телефон</span><input type="tel" name="phoneNumber_${i}" value="${escapeHtml(p.phone)}" placeholder="+7 999 123-45-67"></label>
+      ${i>0 ? `<button type="button" data-remove-phone="${i}" class="btn btn-ghost btn-sm" style="width:auto;margin-bottom:14px;padding:8px 12px;">✕</button>` : ''}
+    </div>`;
+  }
+  function addressRowHtml(a, i){
+    return `<div style="border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;">
+      <div class="row-btns" style="align-items:flex-end;">
+        <label class="field" style="flex:1;"><span>${i===0?'Метка (необязательно)':'Метка'}</span><input name="addressLabel_${i}" value="${escapeHtml(a.label)}" placeholder="например, Дом или Дача"></label>
+        ${i>0 ? `<button type="button" data-remove-address="${i}" class="btn btn-ghost btn-sm" style="width:auto;margin-bottom:14px;padding:8px 12px;">✕</button>` : ''}
+      </div>
+      <label class="field"><span>Район</span>
+        <select name="addressDistrict_${i}">
+          <option value="">Не выбран</option>
+          ${DISTRICTS.map(d=>`<option value="${escapeHtml(d)}"${a.district===d?' selected':''}>${escapeHtml(d)}</option>`).join('')}
+        </select>
+      </label>
+      <div class="row-btns">
+        <label class="field" style="flex:2;"><span>Улица</span><input name="addressStreet_${i}" value="${escapeHtml(a.street)}"></label>
+        <label class="field" style="flex:1;"><span>Квартира</span><input name="addressApartment_${i}" value="${escapeHtml(a.apartment)}"></label>
+      </div>
+      <div class="row-btns">
+        <label class="field" style="flex:1;"><span>Подъезд</span><input name="addressEntrance_${i}" value="${escapeHtml(a.entrance)}"></label>
+        <label class="field" style="flex:1;"><span>Этаж</span><input name="addressFloor_${i}" value="${escapeHtml(a.floor)}"></label>
+      </div>
+    </div>`;
+  }
+
+  function formHtml(){
+    return `
+    <div class="sheet-handle"></div>
+    <h2>${existing ? 'Карточка клиента' : isSibling ? 'Ещё один ребёнок' : 'Новый клиент'}</h2>
+    <form id="client-form" novalidate>
+      <div id="client-form-error" class="hidden" style="background:var(--rose-soft);color:#7A3B2E;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;"></div>
+      <label class="field"><span>Имя родителя</span><input name="parentName" value="${escapeHtml(c.parentName)}"></label>
+
+      <span style="display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;">Телефоны</span>
+      <div id="phones-list">${phones.map((p,i)=>phoneRowHtml(p,i)).join('')}</div>
+      <button type="button" id="add-phone-btn" class="btn btn-ghost btn-sm" style="width:auto;margin-bottom:14px;">+ Ещё номер</button>
+
+      <span style="display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;">Адреса</span>
+      <div id="addresses-list">${addresses.map((a,i)=>addressRowHtml(a,i)).join('')}</div>
+      <button type="button" id="add-address-btn" class="btn btn-ghost btn-sm" style="width:auto;margin-bottom:14px;">+ Ещё адрес</button>
+
+      <div class="row-btns">
+        <label class="field" style="flex:1;"><span>Стоимость сеанса, ₽</span><input type="number" min="0" name="price" value="${escapeHtml(c.price)}"></label>
+        <label class="field" style="flex:1;"><span>Время начала</span><input type="time" name="time" value="${escapeHtml(c.time)}"></label>
+      </div>
+      <label class="field"><span>Имя ребёнка</span><input name="childName" value="${escapeHtml(c.childName)}"></label>
+      <label class="field"><span>Возраст ребёнка</span><input name="childAge" value="${escapeHtml(c.childAge)}" placeholder="например, 8 месяцев"></label>
+      <label class="field"><span>Пол ребёнка</span>
+        <div class="seg" id="gender-seg">
+          <button type="button" class="${c.gender==='male'?'active':''}" data-val="male">Мальчик</button>
+          <button type="button" class="${c.gender==='female'?'active':''}" data-val="female">Девочка</button>
+        </div>
+        <input type="hidden" name="gender" value="${c.gender==='female'?'female':c.gender==='male'?'male':''}">
+      </label>
+      <label class="field"><span>Откуда узнали</span>
+        <select name="source">
+          <option value="">Не указано</option>
+          ${SOURCES.map(s=>`<option value="${escapeHtml(s)}"${c.source===s?' selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="field"><span>Комментарий</span><textarea name="comment">${escapeHtml(c.comment)}</textarea></label>
+      ${!existing ? `
+      <h3>Курс</h3>
+      <label class="field"><span>Дата начала курса</span><input type="date" name="startDate" value="${todayISO()}"></label>
+      <label class="field"><span>Количество сеансов</span><input type="number" min="1" name="totalSessions" value="10"></label>
+      <div id="cap-hint" class="cap-hint hidden"></div>
+      <div class="sub" style="margin-bottom:12px;">Новый клиент попадёт в статус «Бронь».</div>
+      ` : ''}
+      <div class="row-btns" style="margin-top:8px;">
+        <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+        <button type="button" id="client-save-btn" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+    `;
+  }
+
+  function syncFromDom(){
+    const form = document.getElementById('client-form');
+    if(!form) return;
+    phones.forEach((p,i)=>{
+      const l = form.querySelector(`[name="phoneLabel_${i}"]`);
+      const n = form.querySelector(`[name="phoneNumber_${i}"]`);
+      if(l) p.label = l.value;
+      if(n) p.phone = n.value;
+    });
+    addresses.forEach((a,i)=>{
+      const l = form.querySelector(`[name="addressLabel_${i}"]`);
+      const s = form.querySelector(`[name="addressStreet_${i}"]`);
+      const ap = form.querySelector(`[name="addressApartment_${i}"]`);
+      const en = form.querySelector(`[name="addressEntrance_${i}"]`);
+      const fl = form.querySelector(`[name="addressFloor_${i}"]`);
+      const di = form.querySelector(`[name="addressDistrict_${i}"]`);
+      if(l) a.label = l.value;
+      if(s) a.street = s.value;
+      if(ap) a.apartment = ap.value;
+      if(en) a.entrance = en.value;
+      if(fl) a.floor = fl.value;
+      if(di) a.district = di.value;
+    });
+  }
+
+  function rerender(){
+    showSheet(formHtml());
+    attach();
+  }
+
+  function attach(){
+    const genderSeg = document.getElementById('gender-seg');
+    genderSeg.querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const was = btn.classList.contains('active');
+        genderSeg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+        if(!was) btn.classList.add('active');
+        document.querySelector('#client-form input[name=gender]').value = was ? '' : btn.dataset.val;
+      });
+    });
+    document.getElementById('add-phone-btn').addEventListener('click', ()=>{
+      syncFromDom();
+      phones.push({label:'', phone:''});
+      rerender();
+    });
+    document.getElementById('add-address-btn').addEventListener('click', ()=>{
+      syncFromDom();
+      addresses.push({label:'', street:'', apartment:'', entrance:'', floor:'', district:''});
+      rerender();
+    });
+    document.querySelectorAll('[data-remove-phone]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        syncFromDom();
+        phones.splice(Number(btn.dataset.removePhone), 1);
+        rerender();
+      });
+    });
+    document.querySelectorAll('[data-remove-address]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        syncFromDom();
+        addresses.splice(Number(btn.dataset.removeAddress), 1);
+        rerender();
+      });
+    });
+    if(!existing) bindCapacityHint(document.getElementById('client-form'), document.getElementById('cap-hint'), null);
+    document.getElementById('client-save-btn').addEventListener('click', ()=>{
+      syncFromDom();
+      const fd = new FormData(document.getElementById('client-form'));
+      const errBox = document.getElementById('client-form-error');
+      const missing = [];
+      if(!fd.get('parentName').trim()) missing.push('имя родителя');
+      if(!phones.some(p=>p.phone.trim())) missing.push('хотя бы один номер телефона');
+      if(!fd.get('childName').trim()) missing.push('имя ребёнка');
+      if(!fd.get('price') || Number(fd.get('price'))<=0) missing.push('стоимость сеанса');
+      if(missing.length){
+        errBox.textContent = 'Заполните: ' + missing.join(', ');
+        errBox.classList.remove('hidden');
+        return;
+      }
+      if(!existing){
+        const cap = capacityCheck(courseDates(fd.get('startDate') || todayISO(), fd.get('totalSessions')), null);
+        if(cap && cap.level==='block'){
+          errBox.textContent = capacityMessage(cap);
+          errBox.classList.remove('hidden');
+          return;
+        }
+      }
+      errBox.classList.add('hidden');
+      const cleanPhones = phones.filter(p=>p.phone.trim());
+      const cleanAddresses = addresses.filter(a=>a.street.trim() || a.district);
+      const primaryPhone = cleanPhones[0] || {label:'',phone:''};
+      const primaryAddress = cleanAddresses[0] || {label:'',street:'',apartment:'',entrance:'',floor:''};
+      if(existing){
+        existing.parentName = fd.get('parentName');
+        existing.phones = cleanPhones;
+        existing.phone = primaryPhone.phone;
+        existing.addresses = cleanAddresses;
+        existing.street = primaryAddress.street;
+        existing.apartment = primaryAddress.apartment;
+        existing.entrance = primaryAddress.entrance;
+        existing.floor = primaryAddress.floor;
+        existing.price = Number(fd.get('price'));
+        existing.time = fd.get('time');
+        existing.childName = fd.get('childName');
+        existing.childAge = fd.get('childAge');
+        existing.gender = fd.get('gender');
+        existing.comment = fd.get('comment');
+        existing.source = fd.get('source') || '';
+      }else{
+        const newId = genId();
+        const newClient = {
+          id: newId,
+          familyId: siblingOf ? (siblingOf.familyId || siblingOf.id) : newId,
+          parentName: fd.get('parentName'),
+          phones: cleanPhones,
+          phone: primaryPhone.phone,
+          addresses: cleanAddresses,
+          street: primaryAddress.street,
+          apartment: primaryAddress.apartment,
+          entrance: primaryAddress.entrance,
+          floor: primaryAddress.floor,
+          price: Number(fd.get('price')),
+          time: fd.get('time'),
+          childName: fd.get('childName'),
+          childAge: fd.get('childAge'),
+          gender: fd.get('gender'),
+          comment: fd.get('comment'),
+          source: fd.get('source') || '',
+          createdAt: Date.now(),
+          courses: [{
+            id: genId(),
+            startDate: fd.get('startDate') || todayISO(),
+            totalSessions: Number(fd.get('totalSessions')) || 10,
+            skipDates: [],
+            timeOverrides: {},
+            status: 'booking'
+          }]
+        };
+        clients.push(newClient);
+      }
+      saveClients();
+      closeSheet();
+      render();
+    });
+  }
+
+  showSheet(formHtml());
+  attach();
+}
+
+function openClientDetail(id){
+  const client = clients.find(c=>c.id===id);
+  if(!client) return;
+  renderClientDetailInto(client);
+}
+
+function renderClientDetailInto(client){
+  const coursesHtml = (client.courses||[]).map((course, idx)=>{
+    const tl = getCourseTimeline(course);
+    const items = tl.map(t=>{
+      if(t.type==='off'){
+        return `<div class="timeline-item">
+          <div class="t-num off">вых.</div>
+          <div class="t-info"><div class="t-date">${fmtDateShort(t.date)}</div>${t.global ? 'Ваш выходной' : 'Выходной день'}</div>
+          ${t.global ? '' : `<button class="t-action" data-action="unmark-off" data-course="${course.id}" data-date="${t.date}">убрать</button>`}
+        </div>`;
+      }
+      const paid = findRevenueFor(client.id, course.id, t.date);
+      return `<div class="timeline-item">
+        <div class="t-num ${paid?'session-paid':'session-pending'}">${t.sessionNumber}</div>
+        <div class="t-info"><div class="t-date">${fmtDateShort(t.date)}${t.moved ? ' <span style="color:var(--ink-faint);font-size:11px;">(с '+fmtDateShort(t.from)+')</span>' : ''}</div>${paid ? (paid.prepaid ? 'Оплачено вперёд' : 'Оплачено · '+fmtMoney(paid.amount)+' ₽') : 'Ожидается'}</div>
+        ${paid
+          ? `<button class="t-action" data-action="edit-payment" data-rev="${paid.id}">изм.</button>`
+          : `<button class="t-action" data-action="log-payment" data-client="${client.id}" data-course="${course.id}" data-date="${t.date}">оплата</button>`
+        }
+      </div>`;
+    }).join('');
+    const complete = isCourseComplete(client, course);
+    const currentStatus = course.status || 'booking';
+    const statusChips = STATUS_OPTIONS.map(opt=>`
+      <button type="button" class="status-chip ${statusClass(opt.key)} ${opt.key===currentStatus?'selected':''}" data-action="set-course-status" data-course="${course.id}" data-status="${opt.key}" style="width:100%;">${opt.label}</button>
+    `).join('');
+    return `<div class="top-row" style="align-items:baseline;">
+        <h3 style="margin-bottom:0;">Курс от ${fmtDateShort(course.startDate)}</h3>
+        <button type="button" class="t-action" data-action="edit-course" data-course="${course.id}">изменить курс</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-bottom:10px;">${statusChips}</div>
+      ${course.interruptedFrom ? `<div class="interrupted-note">Курс прерван ${fmtDateShort(course.interruptedAt||course.interruptedFrom)}: удалено сеансов — ${course.interruptedLeft||0}. <button type="button" class="t-action" data-action="resume-course" data-course="${course.id}">возобновить</button></div>` : ''}
+      <div class="card">${items}</div>
+      ${!complete ? `<button class="btn btn-outline btn-sm" data-action="open-add-off" data-course="${course.id}" style="margin-bottom:10px;">+ Добавить выходной</button>` : ''}
+    `;
+  }).join('');
+
+  const lastCourse = latestCourse(client);
+  const canStartNew = !lastCourse || isCourseComplete(client, lastCourse);
+  const famId = client.familyId || client.id;
+  const siblings = activeClients().filter(c=>c.id!==client.id && (c.familyId||c.id)===famId);
+  const siblingsHtml = siblings.length ? `
+    <div class="sub" style="margin-bottom:6px;">Ещё дети в семье:
+      ${siblings.map(s=>`<button type="button" data-action="open-client" data-id="${s.id}" style="background:none;border:none;padding:0;margin-right:8px;color:var(--accent-ink);text-decoration:underline;cursor:pointer;font-size:inherit;">${escapeHtml(s.childName)}</button>`).join('')}
+    </div>
+  ` : '';
+
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>${escapeHtml(client.parentName)}</h2>
+    <div class="sub">${escapeHtml(client.childName)}${client.childAge ? ', '+escapeHtml(client.childAge) : ''}${genderLabel(client.gender) ? ', '+genderLabel(client.gender) : ''}${client.time ? ' &nbsp;·&nbsp; '+escapeHtml(client.time) : ''}</div>
+    ${clientBalanceHtml(client)}
+    <div class="sub" style="margin-top:2px;">
+      ${getPhones(client).map(p=>`<span role="button" data-action="phone" data-phone="${escapeHtml(p.phone)}" data-label="${escapeHtml(p.label||'')}" data-name="${escapeHtml(client.parentName)}" style="color:var(--accent-ink);text-decoration:underline;margin-right:10px;cursor:pointer;">${p.label ? escapeHtml(p.label)+': ' : ''}${escapeHtml(p.phone)}</span>`).join('')}
+    </div>
+    ${getAddresses(client).map((a,i)=>`<div class="sub" style="margin-top:2px;">
+      <button type="button" data-action="open-map" data-client="${client.id}" data-address="${i}" style="color:var(--accent-ink);text-decoration:underline;background:none;border:none;padding:0;cursor:pointer;font-size:inherit;">
+        ${a.label ? escapeHtml(a.label)+': ' : ''}${escapeHtml(a.street || a.district || 'адрес не указан')}${a.apartment ? ', кв. '+escapeHtml(a.apartment) : ''}${a.entrance ? ', под. '+escapeHtml(a.entrance) : ''}${a.floor ? ', эт. '+escapeHtml(a.floor) : ''}
+      </button>${a.district && a.street ? ` <span class="district-tag">${escapeHtml(a.district)}</span>` : ''}
+    </div>`).join('')}
+    ${siblingsHtml}
+    <div class="row-btns" style="margin-bottom:8px;margin-top:10px;">
+      <button class="btn btn-outline btn-sm" data-action="edit-client" data-id="${client.id}">Изменить данные</button>
+      <button class="btn btn-danger btn-sm" data-action="delete-client" data-id="${client.id}">Удалить клиента</button>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-bottom:14px;" data-action="add-sibling" data-id="${client.id}">+ Ещё один ребёнок в этой семье</button>
+    ${client.source ? `<div style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">Откуда узнали: <b>${escapeHtml(client.source)}</b></div>` : ''}
+    ${client.comment ? `<div class="card" style="font-size:13.5px;color:var(--ink-soft);">${escapeHtml(client.comment)}</div>` : ''}
+    ${coursesHtml || '<div class="empty-state" style="padding:20px;">Курсов пока нет</div>'}
+    ${canStartNew ? `<button class="btn btn-accent" data-action="start-new-course" data-id="${client.id}">Начать новый курс</button>` : ''}
+  `);
+}
+
+function openEditCourseForm(courseId){
+  let client, course;
+  for(const c of clients){
+    const co = (c.courses||[]).find(x=>x.id===courseId);
+    if(co){ client = c; course = co; break; }
+  }
+  if(!course) return;
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Изменить курс</h2>
+    <div class="sub">${escapeHtml(client.parentName)} · ${escapeHtml(client.childName)}</div>
+    <div id="edit-course-error" class="hidden" style="background:var(--rose-soft);color:#7A3B2E;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;"></div>
+    <form id="edit-course-form" novalidate>
+      <label class="field"><span>Дата начала курса</span><input type="date" name="startDate" value="${course.startDate}"></label>
+      <label class="field"><span>Количество сеансов</span><input type="number" min="1" name="totalSessions" value="${course.totalSessions}"></label>
+      <div id="cap-hint" class="cap-hint hidden"></div>
+    </form>
+    <div class="sub" style="margin-bottom:10px;">Изменение даты начала или числа сеансов пересчитает весь график курса заново.</div>
+    <div class="row-btns">
+      <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+      <button type="button" id="edit-course-save-btn" class="btn btn-primary">Сохранить</button>
+    </div>
+  `);
+  bindCapacityHint(document.getElementById('edit-course-form'), document.getElementById('cap-hint'), course.id);
+  document.getElementById('edit-course-save-btn').addEventListener('click', ()=>{
+    const fd = new FormData(document.getElementById('edit-course-form'));
+    const errBox = document.getElementById('edit-course-error');
+    const startDate = fd.get('startDate');
+    const totalSessions = Number(fd.get('totalSessions'));
+    if(!startDate || !totalSessions || totalSessions<=0){
+      errBox.textContent = 'Укажите корректную дату начала и число сеансов больше нуля';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    const capRes = capacityCheck(courseDates(startDate, totalSessions), course.id);
+    if(capRes && capRes.level==='block'){
+      errBox.textContent = capacityMessage(capRes);
+      errBox.classList.remove('hidden');
+      return;
+    }
+    course.startDate = startDate;
+    course.totalSessions = totalSessions;
+    saveClients();
+    closeSheet();
+    setTimeout(()=>openClientDetail(client.id), 190);
+  });
+}
+
+function openAddOffPicker(courseId){
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Добавить выходной</h2>
+    <div class="sub">Курс автоматически продлится на этот день.</div>
+    <form id="off-form" novalidate>
+      <label class="field"><span>Дата</span><input type="date" name="date" value="${todayISO()}"></label>
+      <div class="row-btns">
+        <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+        <button type="button" id="off-save-btn" class="btn btn-primary">Добавить</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('off-save-btn').addEventListener('click', ()=>{
+    const date = new FormData(document.getElementById('off-form')).get('date');
+    addOffDate(courseId, date);
+  });
+}
+
+function openEditSessionAddress(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!client || !course) return;
+  const addrs = getAddresses(client);
+  const currentIdx = getSessionAddressIndex(client, course, date);
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Какой адрес в этот день?</h2>
+    <div class="sub">${fmtDateLong(date)} · ${escapeHtml(client.parentName)}</div>
+    ${addrs.map((a,i)=>`<button type="button" data-action="pick-address" data-client="${clientId}" data-course="${courseId}" data-date="${date}" data-idx="${i}" class="btn ${i===currentIdx?'btn-primary':'btn-outline'}" style="margin-bottom:8px;text-align:left;">${a.label ? escapeHtml(a.label)+': ' : ''}${escapeHtml(a.street || a.district || 'адрес не указан')}${a.apartment ? ', кв. '+escapeHtml(a.apartment) : ''}</button>`).join('')}
+  `);
+}
+function pickSessionAddress(clientId, courseId, date, idx){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return;
+  course.addressOverrides = course.addressOverrides || {};
+  course.addressOverrides[date] = idx;
+  saveClients();
+  closeSheet();
+  setTimeout(()=>openDaySheet(date), 190);
+}
+
+function nextSessionInfo(client){
+  const today = todayISO();
+  let next = null, last = null;
+  (client.courses||[]).forEach(course=>{
+    getCourseTimeline(course).forEach(t=>{
+      if(t.type!=='session') return;
+      if(t.date>=today){ if(!next || t.date<next.date) next = {date:t.date, time:getSessionTime(client, course, t.date)}; }
+      else if(!last || t.date>last) last = t.date;
+    });
+  });
+  return {next, last};
+}
+function searchClientsList(q){
+  q = (q||'').trim().toLowerCase();
+  const qd = q.replace(/\D/g,'');
+  const list = activeClients().filter(c=>{
+    if(!q) return true;
+    const hay = [c.parentName, c.childName, c.comment, c.source,
+      ...getAddresses(c).map(a=>[a.label,a.street,a.district].join(' '))].join(' ').toLowerCase();
+    if(hay.includes(q)) return true;
+    if(qd.length>=3 && getPhones(c).some(p=>String(p.phone||'').replace(/\D/g,'').includes(qd))) return true;
+    return false;
+  });
+  list.sort((a,b)=>String(a.parentName).localeCompare(String(b.parentName),'ru'));
+  return list;
+}
+function searchResultsHtml(q){
+  const list = searchClientsList(q);
+  if(!list.length) return `<div class="empty-state" style="padding:20px;">Никого не нашли</div>`;
+  return list.slice(0,40).map(c=>{
+    const ni = nextSessionInfo(c);
+    const sub = ni.next ? 'Ближайший сеанс: '+fmtDateLong(ni.next.date)+(ni.next.time?', '+escapeHtml(ni.next.time):'')
+      : (ni.last ? 'Последний сеанс: '+fmtDateLong(ni.last) : 'Сеансов нет');
+    const ds = clientDistricts(c);
+    return `<button type="button" class="search-row" data-action="open-client" data-id="${c.id}">
+      <div class="search-name">${escapeHtml(c.parentName)} · ${escapeHtml(c.childName)}</div>
+      <div class="search-sub">${sub}${ds.length ? ' · '+ds.map(escapeHtml).join(' / ') : ''}</div>
+    </button>`;
+  }).join('') + (list.length>40 ? `<div class="sub" style="text-align:center;margin-top:8px;">Показаны первые 40 из ${list.length}</div>` : '');
+}
+function openSearchSheet(){
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Поиск клиента</h2>
+    <input type="search" id="global-search-input" data-action="global-search" placeholder="Имя, телефон, адрес, район" style="margin-bottom:12px;" autocomplete="off">
+    <div id="search-results">${searchResultsHtml('')}</div>
+  `);
+  setTimeout(()=>{ const i = document.getElementById('global-search-input'); if(i) i.focus(); }, 260);
+}
+let toastTimer = null;
+function toast(msg){
+  let el = document.getElementById('toast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 4500);
+}
+let pendingConfirm = null;
+function askConfirm(title, text, yesLabel, onYes, danger){
+  pendingConfirm = onYes;
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>${escapeHtml(title)}</h2>
+    <div class="confirm-text">${escapeHtml(text).replace(/\n/g,'<br>')}</div>
+    <div class="row-btns">
+      <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+      <button type="button" class="btn ${danger?'btn-danger':'btn-primary'}" data-action="confirm-yes">${escapeHtml(yesLabel)}</button>
+    </div>
+  `);
+}
+function interruptCourse(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return;
+  const today = todayISO();
+  const from = date>=today ? date : today;
+  const future = getCourseTimeline(course).filter(t=>t.type==='session' && t.date>=from);
+  const cv = getCoverage(clientId, courseId);
+  const prepaidLost = future.filter(t=>cv.covered[t.date]).length;
+  let msg = client.parentName+' · '+client.childName+'\nБудущих сеансов: '+future.length+' — они будут удалены, курс отметится как «прерванный».';
+  if(prepaidLost) msg += '\n\nЗа '+prepaidLost+' из них уже внесена предоплата (около '+fmtMoney(prepaidLost*Number(client.price||0))+' ₽). Она останется в доходах — при необходимости верните её клиенту.';
+  askConfirm('Завершить курс?', msg, 'Да, завершить', ()=>doInterrupt(client, course, from, future.length), true);
+}
+function doInterrupt(client, course, from, leftCount){
+  const today = todayISO();
+  const future = {length:leftCount};
+  course.statusBeforeInterrupt = course.status || 'progress';
+  course.interruptedFrom = from;
+  course.interruptedAt = today;
+  course.interruptedLeft = future.length;
+  course.status = 'done';
+  course.followUpHandled = true;
+  saveClients();
+  closeSheet();
+  setTimeout(render, 190);
+}
+function resumeCourse(courseId){
+  for(const client of clients){
+    const course = (client.courses||[]).find(co=>co.id===courseId);
+    if(course){
+      askConfirm('Возобновить курс?', 'Удалённые сеансы вернутся, курс снова станет активным.', 'Да, возобновить', ()=>{
+        delete course.interruptedFrom; delete course.interruptedAt; delete course.interruptedLeft;
+        course.status = course.statusBeforeInterrupt || 'progress';
+        delete course.statusBeforeInterrupt;
+        course.followUpHandled = false;
+        saveClients();
+        openClientDetail(client.id);
+      }, false);
+      return;
+    }
+  }
+}
+function toggleOffDay(iso){
+  if(iso < todayISO()) return;
+  if(offDays.includes(iso)){
+    offDays = offDays.filter(d=>d!==iso);
+    offMsg = fmtDateLong(iso)+': выходной снят, сеансы вернулись на эту дату.';
+  }else{
+    const n = getSessionsForDate(iso).length;
+    offDays = offDays.concat(iso).sort();
+    offMsg = fmtDateLong(iso)+': выходной.' + (n ? ' Сдвинуто сеансов: '+n+' — эти курсы закончатся позже.' : ' Клиентов на эту дату нет.');
+  }
+  saveOffDays();
+  render();
+}
+function autoMoveSession(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return;
+  addSkipDate(course, date);
+  saveClients();
+  closeSheet();
+  setTimeout(render, 190);
+}
+function openMoveSession(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return;
+  const cur = getSessionTime(client, course, date);
+  const moved = Object.keys(course.moves||{}).find(k=>course.moves[k]===date);
+  const dflt = toISO(addDays(parseISO(date), 1)) < todayISO() ? todayISO() : toISO(addDays(parseISO(date), 1));
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Перенести сеанс</h2>
+    <div class="sub" style="margin-bottom:10px;">${escapeHtml(client.parentName)} · ${escapeHtml(client.childName)}<br>Сейчас: ${fmtDateLong(date)}${cur ? ', '+escapeHtml(cur) : ''}</div>
+    <button type="button" class="btn btn-primary" style="width:100%;margin-bottom:4px;" data-action="move-auto" data-client="${clientId}" data-course="${courseId}" data-date="${date}">Перенести автоматически</button>
+    <div class="sub" style="margin-bottom:14px;text-align:center;">Этот сеанс уйдёт на ближайший свободный день в конце курса — курс закончится позже.</div>
+    <div class="sub" style="margin-bottom:8px;font-weight:600;">Или выберите конкретную дату:</div>
+    <div id="move-error" class="hidden" style="background:var(--rose-soft);color:#7A3B2E;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;"></div>
+    <form id="move-form" novalidate>
+      <label class="field"><span>Новая дата</span><input type="date" name="toDate" value="${dflt}"></label>
+      <label class="field"><span>Время (необязательно)</span><input type="time" name="time" value="${escapeHtml(cur||'')}"></label>
+      <div id="cap-hint" class="cap-hint hidden"></div>
+    </form>
+    <div class="row-btns">
+      <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+      <button type="button" class="btn btn-outline" id="move-save-btn">Перенести на эту дату</button>
+    </div>
+    ${moved ? `<button type="button" class="btn btn-outline" style="margin-top:8px;width:100%;" id="move-back-btn">Вернуть на ${fmtDateLong(moved)}</button>` : ''}
+  `);
+  (function(){
+    const f = document.getElementById('move-form'), h = document.getElementById('cap-hint');
+    const upd = ()=>{
+      const dt = f.querySelector('[name=toDate]').value;
+      const n = dt ? countOnDate(dt, null) : 0;
+      const res = n>=CAP_MAX ? {level:'block',date:dt,count:n} : (n>=CAP_WARN ? {level:'warn',date:dt,count:n} : null);
+      const offNote = dt && isGlobalOff(dt) ? 'В этот день у вас выходной. ' : '';
+      h.textContent = offNote + capacityMessage(res);
+      h.className = 'cap-hint' + (offNote ? ' block' : (res ? ' '+res.level : ' hidden'));
+    };
+    f.querySelector('[name=toDate]').addEventListener('input', upd);
+    f.querySelector('[name=toDate]').addEventListener('change', upd);
+    upd();
+  })();
+  const errBox = document.getElementById('move-error');
+  const doMove = (toDate, time)=>{
+    const err = moveSession(clientId, courseId, date, toDate, time, true);
+    if(err){ errBox.textContent = err; errBox.classList.remove('hidden'); return; }
+    askConfirm('Перенести сеанс?', client.parentName+' · '+client.childName+'\nС '+fmtDateLong(date)+' на '+fmtDateLong(toDate)+(time ? ', '+time : '')+'.', 'Да, перенести', ()=>{
+      const e2 = moveSession(clientId, courseId, date, toDate, time);
+      if(e2){ toast(e2); return; }
+      closeSheet();
+      setTimeout(render, 190);
+    }, false);
+  };
+  document.getElementById('move-save-btn').addEventListener('click', ()=>{
+    const fd = new FormData(document.getElementById('move-form'));
+    doMove(fd.get('toDate'), fd.get('time'));
+  });
+  const back = document.getElementById('move-back-btn');
+  if(back) back.addEventListener('click', ()=>doMove(moved, ''));
+}
+function openEditSessionTime(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!client || !course) return;
+  const current = getSessionTime(client, course, date);
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Время сеанса</h2>
+    <div class="sub">${fmtDateLong(date)} · ${escapeHtml(client.parentName)}</div>
+    <form id="time-form" novalidate>
+      <label class="field"><span>Время начала</span><input type="time" name="time" value="${escapeHtml(current)}"></label>
+      <div class="row-btns">
+        ${course.timeOverrides && course.timeOverrides[date] ? `<button type="button" class="btn btn-outline" data-action="reset-time" data-client="${clientId}" data-course="${courseId}" data-date="${date}">Сбросить перенос</button>` : ''}
+        <button type="button" id="time-save-btn" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('time-save-btn').addEventListener('click', ()=>{
+    const time = new FormData(document.getElementById('time-form')).get('time');
+    course.timeOverrides = course.timeOverrides || {};
+    if(time) course.timeOverrides[date] = time;
+    else delete course.timeOverrides[date];
+    saveClients();
+    closeSheet();
+    setTimeout(()=>openDaySheet(date), 190);
+  });
+}
+function resetSessionTime(clientId, courseId, date){
+  const client = clients.find(c=>c.id===clientId);
+  const course = client ? (client.courses||[]).find(co=>co.id===courseId) : null;
+  if(!course) return;
+  if(course.timeOverrides) delete course.timeOverrides[date];
+  saveClients();
+  closeSheet();
+  setTimeout(()=>openDaySheet(date), 190);
+}
+
+function addOffDateData(courseId, date){
+  for(const client of clients){
+    const course = (client.courses||[]).find(co=>co.id===courseId);
+    if(course){
+      addSkipDate(course, date);
+      saveClients();
+      return client;
+    }
+  }
+  return null;
+}
+function addOffDate(courseId, date){
+  const client = addOffDateData(courseId, date);
+  if(client){
+    closeSheet();
+    setTimeout(()=>openClientDetail(client.id), 190);
+  }
+}
+function removeOffDate(courseId, date){
+  for(const client of clients){
+    const course = (client.courses||[]).find(co=>co.id===courseId);
+    if(course){
+      course.skipDates = course.skipDates.filter(d=>d!==date);
+      saveClients();
+      openClientDetail(client.id);
+      return;
+    }
+  }
+}
+function markOffFromCalendar(clientId, courseId, date){
+  addOffDateData(courseId, date);
+  closeSheet();
+  setTimeout(render, 190);
+}
+function dismissFollowUp(clientId){
+  const client = clients.find(c=>c.id===clientId);
+  const lc = client ? latestCourse(client) : null;
+  if(!lc) return;
+  lc.followUpHandled = true;
+  saveClients();
+  render();
+}
+function setCourseStatus(courseId, status){
+  for(const client of clients){
+    const course = (client.courses||[]).find(co=>co.id===courseId);
+    if(course){
+      course.status = status;
+      saveClients();
+      openClientDetail(client.id);
+      return;
+    }
+  }
+}
+function startNewCourse(clientId){
+  const client = clients.find(c=>c.id===clientId);
+  if(!client) return;
+  const last = latestCourse(client);
+  const capRes = capacityCheck(courseDates(todayISO(), last ? last.totalSessions : 10), null);
+  if(capRes && capRes.level==='block'){ toast(capacityMessage(capRes)); return; }
+  if(capRes){
+    askConfirm('Начать новый курс?', capacityMessage(capRes)+'\nВсё равно начать курс с сегодняшнего дня?', 'Да, начать', ()=>createCourseNow(client, last), false);
+    return;
+  }
+  createCourseNow(client, last);
+}
+function createCourseNow(client, last){
+  client.courses = client.courses || [];
+  client.courses.push({
+    id: genId(),
+    startDate: todayISO(),
+    totalSessions: last ? last.totalSessions : 10,
+    skipDates: [],
+    timeOverrides: {},
+    status: 'booking'
+  });
+  saveClients();
+  openClientDetail(client.id);
+}
+function deleteClient(id){
+  const client = clients.find(c=>c.id===id);
+  if(!client) return;
+  client.deleted = true;
+  client.deletedAt = Date.now();
+  saveClients();
+  closeSheet();
+  render();
+}
+function restoreClient(id){
+  const client = clients.find(c=>c.id===id);
+  if(!client) return;
+  delete client.deleted;
+  delete client.deletedAt;
+  saveClients();
+  openDeletedSheet();
+}
+function permanentlyDeleteClient(id){
+  askConfirm('Удалить навсегда?', 'Клиент и вся его история будут удалены без возможности восстановления.', 'Да, удалить', ()=>{
+    clients = clients.filter(c=>c.id!==id);
+    saveClients();
+    openDeletedSheet();
+  }, true);
+}
+function openDeletedSheet(){
+  const deleted = clients.filter(c=>c.deleted).sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Удалённые клиенты</h2>
+    ${deleted.length===0 ? `<div class="empty-state" style="padding:24px 10px;">Здесь пусто</div>` : deleted.map(c=>`
+      <div class="card">
+        <div style="font-weight:600;font-size:13.5px;">${escapeHtml(c.parentName)} · ${escapeHtml(c.childName)}</div>
+        <div class="row-btns" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline btn-sm" data-action="restore-client" data-id="${c.id}">Восстановить</button>
+          <button type="button" class="btn btn-danger btn-sm" data-action="permadelete-client" data-id="${c.id}">Удалить навсегда</button>
+        </div>
+      </div>
+    `).join('')}
+  `);
+}
+
+/* ---------------- Income tab ---------------- */
+function renderIncome(){
+  const monthKey = calYear+'-'+pad(calMonth+1);
+  const monthEntries = revenue.filter(r=>r.date.startsWith(monthKey));
+  const total = monthEntries.reduce((s,r)=>s+Number(r.amount),0);
+  const cash = monthEntries.filter(r=>r.paymentType==='cash').reduce((s,r)=>s+Number(r.amount),0);
+  const transfer = monthEntries.filter(r=>r.paymentType==='transfer').reduce((s,r)=>s+Number(r.amount),0);
+
+  const grouped = {};
+  monthEntries.slice().sort((a,b)=> b.date.localeCompare(a.date) || b.createdAt-a.createdAt).forEach(r=>{
+    (grouped[r.date] = grouped[r.date]||[]).push(r);
+  });
+
+  let rowsHtml = '';
+  if(monthEntries.length===0){
+    rowsHtml = `<div class="empty-state"><div class="big">Нет доходов за этот месяц</div></div>`;
+  }else{
+    rowsHtml = Object.keys(grouped).map(date=>{
+      const rows = grouped[date].map(r=>{
+        const client = clients.find(c=>c.id===r.clientId);
+        const who = client ? escapeHtml(client.parentName)+' · '+escapeHtml(client.childName) : 'Без привязки к клиенту';
+        return `<div class="rev-row" data-action="edit-payment" data-rev="${r.id}">
+          <div>
+            <div class="who">${who}<span class="type-pill ${r.paymentType}">${r.paymentType==='cash'?'наличные':'перевод'}</span></div>
+            ${r.comment ? `<div class="cmt">${escapeHtml(r.comment)}</div>` : ''}
+          </div>
+          <div class="amt">${fmtMoney(r.amount)} ₽</div>
+        </div>`;
+      }).join('');
+      return `<div class="rev-day-group"><div class="rev-day-label">${fmtDateLong(date)}</div>${rows}</div>`;
+    }).join('');
+  }
+
+  return `
+    <div class="cal-header">
+      <button data-action="prev-month">‹</button>
+      <div class="month">${MONTHS[calMonth]} ${calYear}</div>
+      <button data-action="next-month">›</button>
+    </div>
+    <div class="summary-row">
+      <div class="summary-card"><div class="val">${fmtMoney(total)}</div><div class="lab">итого, ₽</div></div>
+      <div class="summary-card"><div class="val">${fmtMoney(cash)}</div><div class="lab">наличные</div></div>
+      <div class="summary-card"><div class="val">${fmtMoney(transfer)}</div><div class="lab">перевод</div></div>
+    </div>
+    ${rowsHtml}
+  `;
+}
+
+/* ---------------- Analytics tab ---------------- */
+function parseAgeToMonths(text){
+  if(!text) return null;
+  const t = String(text).toLowerCase().replace(',', '.');
+  const m = t.match(/(\d+(\.\d+)?)/);
+  if(!m) return null;
+  const num = parseFloat(m[1]);
+  if(/год|лет/.test(t)) return num*12;
+  if(/мес/.test(t)) return num;
+  return num<=17 ? num*12 : num;
+}
+function fmtAgeMonths(months){
+  const m = Math.round(months);
+  if(m<12) return m+' мес.';
+  const years = Math.floor(m/12);
+  const rem = m%12;
+  return rem ? years+' г. '+rem+' мес.' : years+' г.';
+}
+
+function districtRowHtml(name, count, max, value){
+  return `<button type="button" class="dist-row ${count?'':'zero'}" data-action="open-district" data-district="${escapeHtml(value)}">
+    <span class="dist-name">${escapeHtml(name)}</span>
+    <span class="dist-bar"><i style="width:${Math.round(count/max*100)}%"></i></span>
+    <strong>${count}</strong>
+  </button>`;
+}
+function analyticsToggleHtml(){
+  return `<div class="seg" style="margin-bottom:14px;">
+    <button type="button" class="${analyticsView==='month'?'active':''}" data-action="analytics-view" data-view="month">Месяц</button>
+    <button type="button" class="${analyticsView==='year'?'active':''}" data-action="analytics-view" data-view="year">Год</button>
+  </div>`;
+}
+function renderYearAnalytics(){
+  const y = calYear;
+  const rows = MONTHS.map((name,m)=>{
+    const key = y+'-'+pad(m+1);
+    const entries = revenue.filter(r=>r.date.startsWith(key));
+    const sum = entries.reduce((s,r)=>s+Number(r.amount),0);
+    const newClients = activeClients().filter(cl=>{
+      const first = (cl.courses||[]).map(co=>co.startDate).filter(Boolean).sort()[0];
+      return first && first.startsWith(key);
+    }).length;
+    return {name, m, count: sessionsIn(entries), sum, newClients};
+  });
+  const yearEntries = revenue.filter(r=>r.date.startsWith(y+'-'));
+  const totalSum = rows.reduce((s,r)=>s+r.sum,0);
+  const totalCount = rows.reduce((s,r)=>s+r.count,0);
+  const totalNew = rows.reduce((s,r)=>s+r.newClients,0);
+  const avg = totalCount ? Math.round(totalSum/totalCount) : 0;
+  const cash = yearEntries.filter(r=>r.paymentType==='cash').reduce((s,r)=>s+Number(r.amount),0);
+  const transfer = yearEntries.filter(r=>r.paymentType==='transfer').reduce((s,r)=>s+Number(r.amount),0);
+  const cashPct = totalSum ? Math.round(cash/totalSum*100) : 0;
+  const activeMonths = rows.filter(r=>r.count>0);
+  const best = activeMonths.length ? activeMonths.reduce((a,b)=>b.sum>a.sum?b:a) : null;
+  const avgMonth = activeMonths.length ? Math.round(totalSum/activeMonths.length) : 0;
+  const maxSum = Math.max(1, ...rows.map(r=>r.sum));
+  const interruptedYear = activeClients().flatMap(cl=>cl.courses||[]).filter(co=>co.interruptedFrom && (co.interruptedAt||'').startsWith(y+'-')).length;
+  const monthRows = rows.map(r=>`
+    <div class="year-row ${r.count?'':'zero'}">
+      <span class="year-m">${r.name.slice(0,3)}</span>
+      <span class="year-bar"><i style="width:${Math.round(r.sum/maxSum*100)}%"></i></span>
+      <span class="year-num">${r.count}</span>
+      <span class="year-sum">${r.sum ? fmtMoney(r.sum) : '—'}</span>
+      <span class="year-new">${r.newClients ? '+'+r.newClients : ''}</span>
+    </div>`).join('');
+  return `
+    ${analyticsToggleHtml()}
+    <div class="cal-header">
+      <button data-action="prev-year">‹</button>
+      <div class="month">${y} год</div>
+      <button data-action="next-year">›</button>
+    </div>
+    <div class="summary-row">
+      <div class="summary-card"><div class="val">${fmtMoney(totalSum)} ₽</div><div class="lab">Выручка за год</div></div>
+      <div class="summary-card"><div class="val">${totalCount}</div><div class="lab">Массажей оплачено</div></div>
+    </div>
+    <div class="summary-row">
+      <div class="summary-card"><div class="val">${fmtMoney(avg)} ₽</div><div class="lab">Средний чек</div></div>
+      <div class="summary-card"><div class="val">${totalNew}</div><div class="lab">Новых клиентов</div></div>
+    </div>
+    <div class="card" style="font-size:13.5px;line-height:1.7;">
+      ${best ? `Лучший месяц: <b>${MONTHS[best.m]}</b> · ${fmtMoney(best.sum)} ₽<br>` : ''}
+      В среднем за активный месяц: <b>${fmtMoney(avgMonth)} ₽</b><br>
+      Прервано курсов за год: <b>${interruptedYear}</b><br>
+      Наличные: <b>${fmtMoney(cash)} ₽</b> (${cashPct}%) · Переводы: <b>${fmtMoney(transfer)} ₽</b> (${totalSum?100-cashPct:0}%)
+    </div>
+    <h3>По месяцам</h3>
+    <div class="card">
+      <div class="year-row year-head"><span class="year-m"></span><span class="year-bar"></span><span class="year-num">шт.</span><span class="year-sum">₽</span><span class="year-new">нов.</span></div>
+      ${monthRows}
+      <div class="year-row year-total"><span class="year-m">Итого</span><span class="year-bar"></span><span class="year-num">${totalCount}</span><span class="year-sum">${fmtMoney(totalSum)}</span><span class="year-new">${totalNew?'+'+totalNew:''}</span></div>
+    </div>
+  `;
+}
+function renderAnalytics(){
+  if(analyticsView==='year') return renderYearAnalytics();
+  const monthKey = calYear+'-'+pad(calMonth+1);
+  const monthRevenue = revenue.filter(r=>r.date.startsWith(monthKey));
+  const sessionsCount = sessionsIn(monthRevenue);
+  const revenueSum = monthRevenue.reduce((s,r)=>s+Number(r.amount),0);
+  const avgCheck = sessionsCount ? Math.round(revenueSum/sessionsCount) : 0;
+
+  const withGender = activeClients().filter(c=>c.gender==='male'||c.gender==='female');
+  const boys = withGender.filter(c=>c.gender==='male').length;
+  const girls = withGender.filter(c=>c.gender==='female').length;
+  const totalG = boys+girls;
+  const boyPct = totalG ? Math.round(boys/totalG*100) : 0;
+  const girlPct = totalG ? 100-boyPct : 0;
+
+  const ages = activeClients().map(c=>parseAgeToMonths(c.childAge)).filter(v=>v!==null);
+  const ageBuckets = {
+    under6: ages.filter(m=>m<6).length,
+    under1y: ages.filter(m=>m>=6 && m<12).length,
+    y1to3: ages.filter(m=>m>=12 && m<36).length,
+    over3: ages.filter(m=>m>=36).length
+  };
+
+  const activeCourses = activeClients().reduce((count,c)=>{
+    const lc = latestCourse(c);
+    if(lc && !isCourseComplete(c, lc)) count++;
+    return count;
+  },0);
+
+  // Trend over last 6 months (including current)
+  const trendMonths = [];
+  for(let i=5;i>=0;i--){
+    let m = calMonth - i, y = calYear;
+    while(m<0){ m+=12; y--; }
+    trendMonths.push({y, m});
+  }
+  const trendData = trendMonths.map(({y,m})=>{
+    const key = y+'-'+pad(m+1);
+    const entries = revenue.filter(r=>r.date.startsWith(key));
+    return {
+      label: MONTHS[m].slice(0,3),
+      count: sessionsIn(entries),
+      sum: entries.reduce((s,r)=>s+Number(r.amount),0)
+    };
+  });
+  const maxCount = Math.max(1, ...trendData.map(t=>t.count));
+  const trendBars = trendData.map(t=>`
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;">
+      <div style="font-size:11px;color:var(--ink-faint);">${t.count}</div>
+      <div style="width:100%;max-width:26px;height:${Math.max(4, Math.round(t.count/maxCount*70))}px;background:var(--accent);border-radius:5px;"></div>
+      <div style="font-size:11px;color:var(--ink-faint);">${t.label}</div>
+    </div>
+  `).join('');
+
+  // Repeat-client rate: clients with more than one course
+  const clientsWithCourses = activeClients().filter(c=>(c.courses||[]).length>0);
+  const repeatClients = clientsWithCourses.filter(c=>c.courses.length>1).length;
+  const repeatPct = clientsWithCourses.length ? Math.round(repeatClients/clientsWithCourses.length*100) : 0;
+
+  const allCourses = activeClients().flatMap(cl=>cl.courses||[]);
+  const interruptedAll = allCourses.filter(co=>co.interruptedFrom);
+  const interruptedMonth = interruptedAll.filter(co=>(co.interruptedAt||'').startsWith(monthKey)).length;
+  const interruptedPct = allCourses.length ? Math.round(interruptedAll.length/allCourses.length*100) : 0;
+  const activeList = activeClients();
+  const districtCounts = DISTRICTS.map(d=>({name:d, count: activeList.filter(c=>clientDistricts(c).includes(d)).length}));
+  const noDistrictCount = activeList.filter(c=>clientDistricts(c).length===0).length;
+  const maxDistrict = Math.max(1, noDistrictCount, ...districtCounts.map(x=>x.count));
+  const srcCounts = SOURCES.map(s=>({name:s, count: activeList.filter(x=>x.source===s).length}));
+  const noSrc = activeList.filter(x=>!x.source).length;
+  const maxSrc = Math.max(1, noSrc, ...srcCounts.map(x=>x.count));
+  const sourceRows = srcCounts.map(x=>`<div class="dist-row ${x.count?'':'zero'}" style="cursor:default;"><span class="dist-name">${escapeHtml(x.name)}</span><span class="dist-bar"><i style="width:${Math.round(x.count/maxSrc*100)}%"></i></span><strong>${x.count}</strong></div>`).join('')
+    + (noSrc ? `<div class="dist-row zero" style="cursor:default;"><span class="dist-name">Не указано</span><span class="dist-bar"><i style="width:${Math.round(noSrc/maxSrc*100)}%"></i></span><strong>${noSrc}</strong></div>` : '');
+  const districtRows = districtCounts.map(x=>districtRowHtml(x.name, x.count, maxDistrict, x.name)).join('')
+    + (noDistrictCount ? districtRowHtml('Не указан', noDistrictCount, maxDistrict, 'none') : '');
+
+  return `
+    ${analyticsToggleHtml()}
+    <div class="cal-header">
+      <button data-action="prev-month">‹</button>
+      <div class="month">${MONTHS[calMonth]} ${calYear}</div>
+      <button data-action="next-month">›</button>
+    </div>
+    <div class="summary-row">
+      <div class="summary-card"><div class="val">${sessionsCount}</div><div class="lab">сеансов за месяц</div></div>
+      <div class="summary-card"><div class="val">${fmtMoney(revenueSum)}</div><div class="lab">доход, ₽</div></div>
+      <div class="summary-card"><div class="val">${fmtMoney(avgCheck)}</div><div class="lab">средний чек, ₽</div></div>
+    </div>
+
+    <h3>Динамика за 6 месяцев</h3>
+    <div class="card">
+      <div style="display:flex;align-items:flex-end;gap:6px;height:110px;">${trendBars}</div>
+      <div style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Количество сеансов по месяцам</div>
+    </div>
+
+    <h3>Пол детей</h3>
+    <div class="card">
+      ${totalG===0 ? `<div style="color:var(--ink-faint);font-size:13px;">Пока нет данных о поле детей</div>` : `
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:8px;">
+          <span>Мальчики — ${boyPct}% (${boys})</span>
+          <span>Девочки — ${girlPct}% (${girls})</span>
+        </div>
+        <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--surface-alt);">
+          <div style="width:${boyPct}%;background:var(--accent);"></div>
+          <div style="width:${girlPct}%;background:var(--rose);"></div>
+        </div>
+      `}
+    </div>
+
+    <h3>Клиенты</h3>
+    <div class="summary-row">
+      <div class="summary-card"><div class="val">${activeClients().length}</div><div class="lab">всего клиентов</div></div>
+      <div class="summary-card"><div class="val">${activeCourses}</div><div class="lab">активных курсов</div></div>
+    </div>
+
+    <h3>Возраст детей</h3>
+    <div class="card">
+      ${ages.length===0 ? `<div style="color:var(--ink-faint);font-size:13px;">Пока нет данных о возрасте</div>` : `
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line);"><span>До 6 месяцев</span><strong>${ageBuckets.under6}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line);"><span>До 1 года</span><strong>${ageBuckets.under1y}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line);"><span>От 1 до 3 лет</span><strong>${ageBuckets.y1to3}</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;padding:6px 0;"><span>От 3 лет</span><strong>${ageBuckets.over3}</strong></div>
+      `}
+    </div>
+
+    <h3>Прерванные курсы</h3>
+    <div class="card" style="font-size:13.5px;line-height:1.7;">
+      В этом месяце: <b>${interruptedMonth}</b><br>
+      Всего: <b>${interruptedAll.length}</b> из ${allCourses.length} ${ruPlural(allCourses.length,'курса','курсов','курсов')} (${interruptedPct}%)
+    </div>
+
+    <h3>Откуда узнали</h3>
+    <div class="card">
+      ${activeList.length===0 ? `<div style="color:var(--ink-faint);font-size:13px;">Пока нет клиентов</div>` : sourceRows}
+    </div>
+
+    <h3>Районы</h3>
+    <div class="card">
+      ${activeList.length===0 ? `<div style="color:var(--ink-faint);font-size:13px;">Пока нет клиентов</div>` : districtRows + `<div style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Нажмите на район, чтобы открыть список клиентов. Клиент с адресами в двух районах учитывается в обоих.</div>`}
+    </div>
+
+    <div class="card">
+      <div style="font-size:13.5px;">Возвращаются на новый курс: <strong>${repeatPct}%</strong> клиентов${clientsWithCourses.length ? ' ('+repeatClients+' из '+clientsWithCourses.length+')' : ''}</div>
+    </div>
+
+    <div class="row-btns" style="margin-top:16px;">
+      <button class="btn btn-outline" data-action="open-export">Резервная копия</button>
+      <button class="btn btn-outline" data-action="open-import">Восстановить копию</button>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:13px;"><a href="/logout" style="color:var(--ink-faint);">Выйти</a></div>
+  `;
+}
+
+/* ---------------- Tasks UI ---------------- */
+function isSheetOpen(){ return document.getElementById('overlay').classList.contains('show'); }
+
+function toggleTask(id){
+  const t = tasks.find(x=>x.id===id);
+  if(!t) return;
+  t.done = !t.done;
+  t.doneAt = t.done ? Date.now() : null;
+  if(t.done && t.repeat && t.date && !t.nextId){
+    let nd = nextRepeatDate(t.date, t.repeat);
+    const today = todayISO();
+    let guard = 0;
+    while(nd < today && guard++ < 400) nd = nextRepeatDate(nd, t.repeat);
+    const nt = {id: genId(), title:t.title, date:nd, time:t.time||'', author:t.author, note:t.note||'', repeat:t.repeat, done:false};
+    tasks.push(nt);
+    t.nextId = nt.id;
+  }else if(!t.done && t.nextId){
+    const nxt = tasks.find(x=>x.id===t.nextId);
+    if(nxt && !nxt.done) tasks = tasks.filter(x=>x.id!==t.nextId);
+    t.nextId = null;
+  }
+  saveTasks();
+  const sheetOpen = isSheetOpen();
+  render();
+  if(sheetOpen && t.date) openTaskDaySheet(t.date);
+}
+
+function openTaskForm(taskId, presetDate, noDeadline){
+  const existing = taskId ? tasks.find(t=>t.id===taskId) : null;
+  if(taskId && !existing) return;
+  const sheetDate = isSheetOpen() ? (existing ? existing.date : presetDate) : null;
+  const t = existing || {title:'', date: noDeadline ? '' : (presetDate || todayISO()), time:'', author: (window.__ROLE==='karina' ? 'karina' : 'husband'), note:''};
+  const hasDeadline = !!t.date;
+
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>${existing ? 'Задача' : 'Новая задача'}</h2>
+    <div id="task-form-error" class="hidden" style="background:var(--rose-soft);color:#7A3B2E;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;"></div>
+    <form id="task-form" novalidate>
+      <label class="field"><span>Что нужно сделать</span><input name="title" value="${escapeHtml(t.title)}"></label>
+      <label class="field"><span>Срок</span>
+        <div class="seg" id="task-deadline-seg">
+          <button type="button" class="${hasDeadline?'active':''}" data-val="has">Со сроком</button>
+          <button type="button" class="${!hasDeadline?'active':''}" data-val="none">Без срока</button>
+        </div>
+        <input type="hidden" name="hasDeadline" value="${hasDeadline?'has':'none'}">
+      </label>
+      <div class="row-btns ${hasDeadline?'':'hidden'}" id="task-deadline-fields">
+        <label class="field" style="flex:1;"><span>Дедлайн (дата)</span><input type="date" name="date" value="${escapeHtml(t.date || presetDate || todayISO())}"></label>
+        <label class="field" style="flex:1;"><span>Время (необязательно)</span><input type="time" name="time" value="${escapeHtml(t.time)}"></label>
+      </div>
+      <label class="field ${hasDeadline?'':'hidden'}" id="task-repeat-field"><span>Повторять</span>
+        <select name="repeat">
+          <option value="">Не повторять</option>
+          ${Object.keys(REPEAT_LABELS).map(k=>`<option value="${k}"${t.repeat===k?' selected':''}>${REPEAT_LABELS[k][0].toUpperCase()+REPEAT_LABELS[k].slice(1)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="field"><span>Кто поставил</span>
+        <div class="seg" id="task-author-seg">
+          <button type="button" class="${t.author!=='karina'?'active':''}" data-val="husband">Муж</button>
+          <button type="button" class="${t.author==='karina'?'active':''}" data-val="karina">Карина</button>
+        </div>
+        <input type="hidden" name="author" value="${t.author==='karina'?'karina':'husband'}">
+      </label>
+      <label class="field"><span>Комментарий</span><textarea name="note">${escapeHtml(t.note)}</textarea></label>
+    </form>
+    <div class="row-btns">
+      <button type="button" class="btn btn-ghost" id="task-cancel-btn">Отмена</button>
+      <button type="button" class="btn btn-primary" id="task-save-btn">Сохранить</button>
+    </div>
+    ${existing ? `<button type="button" class="btn btn-danger" style="margin-top:8px;" id="task-delete-btn">Удалить задачу</button>` : ''}
+  `);
+
+  const seg = document.getElementById('task-author-seg');
+  seg.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      seg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelector('#task-form input[name=author]').value = btn.dataset.val;
+    });
+  });
+
+  const deadlineSeg = document.getElementById('task-deadline-seg');
+  deadlineSeg.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      deadlineSeg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelector('#task-form input[name=hasDeadline]').value = btn.dataset.val;
+      document.getElementById('task-deadline-fields').classList.toggle('hidden', btn.dataset.val==='none');
+      document.getElementById('task-repeat-field').classList.toggle('hidden', btn.dataset.val==='none');
+    });
+  });
+
+  document.getElementById('task-cancel-btn').addEventListener('click', ()=>{
+    if(sheetDate) openTaskDaySheet(sheetDate); else closeSheet();
+  });
+
+  document.getElementById('task-save-btn').addEventListener('click', ()=>{
+    const fd = new FormData(document.getElementById('task-form'));
+    const title = (fd.get('title')||'').trim();
+    const withDeadline = fd.get('hasDeadline')==='has';
+    const date = withDeadline ? (fd.get('date') || '') : '';
+    const errBox = document.getElementById('task-form-error');
+    if(!title || (withDeadline && !date)){
+      errBox.textContent = 'Заполните: ' + [!title?'что нужно сделать':'', (withDeadline && !date)?'дату дедлайна':''].filter(Boolean).join(', ');
+      errBox.classList.remove('hidden');
+      return;
+    }
+    const data = {
+      title, date,
+      time: withDeadline ? (fd.get('time') || '') : '',
+      author: fd.get('author')==='karina' ? 'karina' : 'husband',
+      note: (fd.get('note')||'').trim(),
+      repeat: (withDeadline && REPEAT_LABELS[fd.get('repeat')]) ? fd.get('repeat') : ''
+    };
+    if(existing){
+      Object.assign(existing, data);
+    }else{
+      tasks.push(Object.assign({id: genId(), done:false}, data));
+    }
+    saveTasks();
+    render();
+    if(sheetDate){ openTaskDaySheet(date || sheetDate); } else closeSheet();
+  });
+
+  if(existing){
+    document.getElementById('task-delete-btn').addEventListener('click', ()=>{
+      askConfirm('Удалить задачу?', existing.title, 'Да, удалить', ()=>{
+        tasks = tasks.filter(x=>x.id!==existing.id);
+        saveTasks();
+        render();
+        if(sheetDate) openTaskDaySheet(sheetDate); else closeSheet();
+      }, true);
+    });
+  }
+}
+
+/* ---------------- Export / backup ---------------- */
+function exportDataJSON(){
+  return JSON.stringify({clients, revenue, tasks, offDays, exportedAt: new Date().toISOString()}, null, 2);
+}
+function openExportSheet(){
+  const json = exportDataJSON();
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Резервная копия</h2>
+    <div class="sub">Сохраните файл или скопируйте текст — если что-то случится с данными, из этого можно будет всё восстановить вручную.</div>
+    <textarea id="export-text" readonly style="height:180px;font-size:11px;font-family:monospace;">${escapeHtml(json)}</textarea>
+    <div class="row-btns" style="margin-top:10px;">
+      <button type="button" class="btn btn-outline" data-action="copy-export">Скопировать</button>
+      <button type="button" class="btn btn-primary" data-action="download-export">Скачать файл</button>
+    </div>
+  `);
+}
+function downloadExport(){
+  const json = exportDataJSON();
+  try{
+    const blob = new Blob([json], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'massage-journal-backup-'+todayISO()+'.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  }catch(e){
+    copyToClipboard(json);
+    toast('Не удалось скачать файл автоматически. Текст копии скопирован в буфер обмена — вставьте его в заметку.');
+  }
+}
+function copyExport(){
+  const ok = copyToClipboard(exportDataJSON());
+  toast(ok ? 'Скопировано в буфер обмена' : 'Не удалось скопировать автоматически — выделите текст в поле выше вручную.');
+}
+
+function openImportSheet(){
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Восстановить из копии</h2>
+    <div class="sub" style="color:#7A3B2E;">Внимание: это заменит все текущие данные в приложении данными из копии.</div>
+    <label class="field"><span>Выбрать файл</span><input type="file" id="import-file" accept="application/json,.json"></label>
+    <label class="field"><span>...или вставьте текст копии сюда</span><textarea id="import-text" style="height:140px;font-family:monospace;font-size:11px;"></textarea></label>
+    <div class="row-btns">
+      <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+      <button type="button" id="import-btn" class="btn btn-primary">Восстановить</button>
+    </div>
+  `);
+  document.getElementById('import-file').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{ document.getElementById('import-text').value = reader.result; };
+    reader.readAsText(file);
+  });
+  document.getElementById('import-btn').addEventListener('click', ()=>{
+    const text = document.getElementById('import-text').value.trim();
+    if(!text){ toast('Выберите файл или вставьте текст копии.'); return; }
+    let data;
+    try{ data = JSON.parse(text); }
+    catch(e){ toast('Не удалось прочитать текст — это должен быть JSON-файл резервной копии.'); return; }
+    if(!Array.isArray(data.clients) || !Array.isArray(data.revenue)){
+      toast('Файл не похож на резервную копию этого приложения.');
+      return;
+    }
+    askConfirm('Заменить данные?', 'Все текущие данные будут заменены данными из этой копии. Отменить это будет нельзя.', 'Да, заменить', ()=>{
+      window.__force = true;
+      clients = data.clients;
+      revenue = data.revenue;
+      saveClients();
+      saveRevenue();
+      if(Array.isArray(data.tasks)){
+        tasks = data.tasks;
+        saveTasks();
+      }
+      if(Array.isArray(data.offDays)){
+        offDays = data.offDays;
+        saveOffDays();
+      }
+      window.__force = false;
+      closeSheet();
+      render();
+      toast('Данные восстановлены из копии.');
+    }, true);
+  });
+}
+
+function openIncomeForm(prefill){
+  prefill = prefill || {};
+  const clientOptions = activeClients().map(c=>`<option value="${c.id}" ${prefill.clientId===c.id?'selected':''}>${escapeHtml(c.parentName)} · ${escapeHtml(c.childName)}</option>`).join('');
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Новая запись о доходе</h2>
+    <form id="income-form" novalidate>
+      <div id="income-form-error" class="hidden" style="background:var(--rose-soft);color:#7A3B2E;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;"></div>
+      <label class="field"><span>Дата</span><input type="date" name="date" value="${prefill.date || todayISO()}"></label>
+      <label class="field"><span>Клиент (необязательно)</span>
+        <select name="clientId">
+          <option value="">Без привязки к клиенту</option>
+          ${clientOptions}
+        </select>
+      </label>
+      <label class="field"><span>Оплата вперёд: за сколько сеансов (если за один — оставьте пустым)</span><input type="number" min="2" max="60" name="forSessions" placeholder="например, 10"></label>
+      <label class="field"><span>Сумма, ₽</span><input type="number" min="0" name="amount" value="${prefill.amount||''}"></label>
+      <label class="field"><span>Вид оплаты</span>
+        <div class="seg" id="type-seg">
+          <button type="button" class="active" data-val="cash">Наличные</button>
+          <button type="button" data-val="transfer">Перевод</button>
+        </div>
+        <input type="hidden" name="paymentType" value="cash">
+      </label>
+      <label class="field"><span>Комментарий</span><textarea name="comment"></textarea></label>
+      <div class="row-btns">
+        <button type="button" class="btn btn-ghost" data-action="close-sheet">Отмена</button>
+        <button type="button" id="income-save-btn" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  `);
+  const seg = document.getElementById('type-seg');
+  seg.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      seg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelector('#income-form input[name=paymentType]').value = btn.dataset.val;
+    });
+  });
+  (function(){
+    const f = document.getElementById('income-form');
+    const fs = f.querySelector('[name=forSessions]'), am = f.querySelector('[name=amount]'), cl = f.querySelector('[name=clientId]');
+    let auto = !am.value || Number(am.value)===Number((clients.find(x=>x.id===prefill.clientId)||{}).price);
+    am.addEventListener('input', ()=>{ auto = false; });
+    const recalc = ()=>{
+      const n = Number(fs.value);
+      const client = clients.find(x=>x.id===cl.value);
+      if(auto && client && n>1) am.value = n*Number(client.price||0);
+    };
+    fs.addEventListener('input', recalc);
+    cl.addEventListener('change', ()=>{ auto = !am.value; recalc(); });
+  })();
+  document.getElementById('income-save-btn').addEventListener('click', ()=>{
+    const fd = new FormData(document.getElementById('income-form'));
+    const errBox = document.getElementById('income-form-error');
+    if(!fd.get('date') || !fd.get('amount') || Number(fd.get('amount'))<=0){
+      errBox.textContent = 'Укажите дату и сумму больше нуля';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    errBox.classList.add('hidden');
+    const clientId = fd.get('clientId') || null;
+    let courseId = prefill.courseId || null;
+    if(clientId && !courseId){
+      const client = clients.find(c=>c.id===clientId);
+      const lc = client ? latestCourse(client) : null;
+      courseId = lc ? lc.id : null;
+    }
+    const nForward = Number(fd.get('forSessions'));
+    const entry = {
+      id: genId(),
+      date: fd.get('date'),
+      clientId: clientId,
+      courseId: courseId,
+      amount: Number(fd.get('amount')),
+      paymentType: fd.get('paymentType'),
+      comment: fd.get('comment'),
+      createdAt: Date.now()
+    };
+    if(clientId && courseId && nForward>1) entry.forSessions = Math.floor(nForward);
+    revenue.push(entry);
+    saveRevenue();
+    closeSheet();
+    render();
+  });
+}
+
+function openEditPayment(revId){
+  const r = revenue.find(x=>x.id===revId);
+  if(!r) return;
+  showSheet(`
+    <div class="sheet-handle"></div>
+    <h2>Запись о доходе</h2>
+    <div class="sub">${fmtDateLong(r.date)}</div>
+    <form id="edit-income-form" novalidate>
+      <label class="field"><span>Сумма, ₽</span><input type="number" min="0" name="amount" value="${r.amount}"></label>
+      <label class="field"><span>Вид оплаты</span>
+        <div class="seg" id="type-seg2">
+          <button type="button" class="${r.paymentType==='cash'?'active':''}" data-val="cash">Наличные</button>
+          <button type="button" class="${r.paymentType==='transfer'?'active':''}" data-val="transfer">Перевод</button>
+        </div>
+        <input type="hidden" name="paymentType" value="${r.paymentType}">
+      </label>
+      <label class="field"><span>Комментарий</span><textarea name="comment">${escapeHtml(r.comment)}</textarea></label>
+      <div class="row-btns">
+        <button type="button" class="btn btn-danger" data-action="delete-payment" data-rev="${r.id}">Удалить</button>
+        <button type="button" id="edit-payment-save-btn" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  `);
+  const seg = document.getElementById('type-seg2');
+  seg.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      seg.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelector('#edit-income-form input[name=paymentType]').value = btn.dataset.val;
+    });
+  });
+  document.getElementById('edit-payment-save-btn').addEventListener('click', ()=>{
+    const fd = new FormData(document.getElementById('edit-income-form'));
+    r.amount = Number(fd.get('amount'));
+    r.paymentType = fd.get('paymentType');
+    r.comment = fd.get('comment');
+    saveRevenue();
+    closeSheet();
+    render();
+  });
+}
+function deletePayment(revId){
+  revenue = revenue.filter(r=>r.id!==revId);
+  saveRevenue();
+  closeSheet();
+  render();
+}
+
+/* ---------------- Sheet system ---------------- */
+function showSheet(html){
+  document.getElementById('sheet').innerHTML = html;
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('hidden');
+  requestAnimationFrame(()=>overlay.classList.add('show'));
+}
+function closeSheet(){
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('show');
+  setTimeout(()=>overlay.classList.add('hidden'), 180);
+}
+
+/* ---------------- Event delegation ---------------- */
+document.getElementById('overlay').addEventListener('click', (e)=>{
+  if(e.target.id==='overlay') closeSheet();
+});
+
+document.addEventListener('click', (e)=>{
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  const action = el.dataset.action;
+
+  if(action==='tab'){ activeTab = el.dataset.tab; render(); }
+  else if(action==='show-month-view'){ calendarView='month'; render(); }
+  else if(action==='show-today-view'){ calendarView='today'; render(); }
+  else if(action==='prev-month'){ calMonth--; if(calMonth<0){calMonth=11;calYear--;} render(); }
+  else if(action==='next-month'){ calMonth++; if(calMonth>11){calMonth=0;calYear++;} render(); }
+  else if(action==='tasks-view'){ tasksView = el.dataset.view; render(); }
+  else if(action==='open-task-day'){ openTaskDaySheet(el.dataset.date); }
+  else if(action==='prev-year'){ calYear--; render(); }
+  else if(action==='next-year'){ calYear++; render(); }
+  else if(action==='analytics-view'){ analyticsView = el.dataset.view; render(); }
+  else if(action==='open-day'){ openDaySheet(el.dataset.date); }
+  else if(action==='add-client'){ openClientForm(null); }
+  else if(action==='open-client'){ openClientDetail(el.dataset.id); }
+  else if(action==='edit-client'){ closeSheet(); setTimeout(()=>openClientForm(clients.find(c=>c.id===el.dataset.id)),190); }
+  else if(action==='add-sibling'){
+    const base = clients.find(c=>c.id===el.dataset.id);
+    if(base){
+      const prefill = {parentName:base.parentName, phone:base.phone, phones:base.phones, street:base.street, apartment:base.apartment, entrance:base.entrance, floor:base.floor, addresses:base.addresses, familyId: base.familyId||base.id};
+      closeSheet();
+      setTimeout(()=>openClientForm(null, prefill), 190);
+    }
+  }
+  else if(action==='delete-client'){ const did = el.dataset.id; askConfirm('Удалить клиента?', 'Клиент и вся история курсов будут удалены. Записи о доходах останутся. Клиента можно будет восстановить из «Удалённых».', 'Да, удалить', ()=>deleteClient(did), true); }
+  else if(action==='open-deleted'){ openDeletedSheet(); }
+  else if(action==='restore-client'){ restoreClient(el.dataset.id); }
+  else if(action==='permadelete-client'){ permanentlyDeleteClient(el.dataset.id); }
+  else if(action==='start-new-course'){ startNewCourse(el.dataset.id); }
+  else if(action==='open-add-off'){ openAddOffPicker(el.dataset.course); }
+  else if(action==='unmark-off'){ removeOffDate(el.dataset.course, el.dataset.date); }
+  else if(action==='interrupt-course'){ interruptCourse(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='resume-course'){ resumeCourse(el.dataset.course); }
+  else if(action==='off-mode-on'){ offSelectMode = true; offMsg=''; render(); }
+  else if(action==='off-mode-off'){ offSelectMode = false; offMsg=''; render(); }
+  else if(action==='toggle-offday'){ toggleOffDay(el.dataset.date); }
+  else if(action==='move-auto'){
+    const cl = clients.find(x=>x.id===el.dataset.client);
+    const cid = el.dataset.client, coid = el.dataset.course, dt = el.dataset.date;
+    askConfirm('Перенести сеанс?', (cl ? cl.parentName+' · '+cl.childName+'\n' : '')+'Сеанс '+fmtDateLong(dt)+' уйдёт на ближайший свободный день в конце курса. Курс закончится позже.', 'Да, перенести', ()=>autoMoveSession(cid, coid, dt), false);
+  }
+  else if(action==='confirm-yes'){ const fn = pendingConfirm; pendingConfirm = null; if(fn) fn(); }
+  else if(action==='open-search'){ openSearchSheet(); }
+  else if(action==='move-session'){ openMoveSession(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='mark-off'){ markOffFromCalendar(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='log-payment'){
+    closeSheet();
+    const client = clients.find(c=>c.id===el.dataset.client);
+    setTimeout(()=>openIncomeForm({date:el.dataset.date, clientId:el.dataset.client, courseId:el.dataset.course, amount: client?client.price:''}),190);
+  }
+  else if(action==='edit-payment'){ openEditPayment(el.dataset.rev); }
+  else if(action==='delete-payment'){ const rid = el.dataset.rev; askConfirm('Удалить запись о доходе?', 'Запись исчезнет из доходов и аналитики.', 'Да, удалить', ()=>deletePayment(rid), true); }
+  else if(action==='add-income'){ openIncomeForm({date: el.dataset.date}); }
+  else if(action==='day-off-all'){ markDayOffForAll(el.dataset.date); }
+  else if(action==='day-off-restore'){ restoreDayForAll(el.dataset.date); }
+  else if(action==='phone'){
+    openPhoneSheet(el.dataset.phone, el.dataset.label, el.dataset.name);
+  }
+  else if(action==='toggle-details'){
+    const row = el.closest('.session-row');
+    if(row) row.classList.toggle('open');
+  }
+  else if(action==='open-district'){
+    activeTab = 'clients';
+    clientDistrictFilter = el.dataset.district;
+    clientStatusFilter = 'all';
+    clientSearch = '';
+    render();
+  }
+  else if(action==='add-task'){ openTaskForm(null, el.dataset.date, !!el.dataset.nodeadline); }
+  else if(action==='edit-task'){ openTaskForm(el.dataset.id); }
+  else if(action==='toggle-task'){ toggleTask(el.dataset.id); }
+  else if(action==='open-map'){ openMapFor(el.dataset.client, Number(el.dataset.address||0)); }
+  else if(action==='edit-time'){ openEditSessionTime(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='edit-address'){ openEditSessionAddress(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='pick-address'){ pickSessionAddress(el.dataset.client, el.dataset.course, el.dataset.date, Number(el.dataset.idx)); }
+  else if(action==='reset-time'){ resetSessionTime(el.dataset.client, el.dataset.course, el.dataset.date); }
+  else if(action==='dismiss-followup'){ dismissFollowUp(el.dataset.client); }
+  else if(action==='filter-status'){ clientStatusFilter = el.dataset.status; render(); }
+  else if(action==='set-course-status'){ setCourseStatus(el.dataset.course, el.dataset.status); }
+  else if(action==='edit-course'){ openEditCourseForm(el.dataset.course); }
+  else if(action==='open-export'){ openExportSheet(); }
+  else if(action==='open-import'){ openImportSheet(); }
+  else if(action==='download-export'){ downloadExport(); }
+  else if(action==='copy-export'){ copyExport(); }
+  else if(action==='close-sheet'){ closeSheet(); }
+});
+
+document.addEventListener('input', (e)=>{
+  if(e.target.dataset.action==='global-search'){
+    const box = document.getElementById('search-results');
+    if(box) box.innerHTML = searchResultsHtml(e.target.value);
+    return;
+  }
+  if(e.target.dataset.action==='search-clients'){
+    clientSearch = e.target.value;
+    const main = document.getElementById('main');
+    main.innerHTML = renderClients();
+    const inp = main.querySelector('[data-action="search-clients"]');
+    if(inp){
+      inp.focus();
+      try{ inp.setSelectionRange(inp.value.length, inp.value.length); }catch(_){}
+    }
+  }
+});
+
+document.addEventListener('change', (e)=>{
+  if(e.target.dataset && e.target.dataset.action==='filter-district'){
+    clientDistrictFilter = e.target.value;
+    render();
+  }
+});
+
+/* ---------------- Init ---------------- */
+window.__reload = async function(){
+  if(window.__reloading) return;
+  window.__reloading = true;
+  try{
+    window.__loadFailed = false;
+    await loadState();
+    if(isSheetOpen()) closeSheet();
+    render();
+    if(window.__loadFailed) toast('Нет связи с сервером — данные не обновлены.');
+  }finally{ window.__reloading = false; }
+};
+async function syncFromServer(){
+  if(document.hidden || window.__reloading) return;
+  if(isSheetOpen()) return;
+  const a = document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  try{
+    const r = await fetch('/api/versions', {credentials:'same-origin', cache:'no-store'});
+    if(r.status===401){ location.href='/login'; return; }
+    if(!r.ok) return;
+    const j = await r.json();
+    const keys = ['mj-clients','mj-revenue','mj-tasks','mj-offdays'];
+    if(keys.some(k=>(j.versions[k]||0)!==(window.__versions[k]||0))) await window.__reload();
+  }catch(e){}
+}
+(async function init(){
+  await (window.__ready || Promise.resolve());
+  await loadState();
+  render();
+  if(window.__loadFailed) toast('Нет связи с сервером — данные не загружены. Проверьте интернет.');
+  setInterval(syncFromServer, 15000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncFromServer(); });
+})();
+</script>
+</body>
+</html>
