@@ -1450,15 +1450,42 @@ function normalizeAddresses(c){
 }
 
 function openClientForm(existing, siblingOf){
-  const c = existing || siblingOf || {parentName:'',price:1500,time:'',childName:'',childAge:'',gender:'',comment:''};
+  let c = Object.assign({}, existing || siblingOf || {parentName:'',price:1500,time:'',childName:'',childAge:'',gender:'',comment:''});
   const isSibling = !existing && !!siblingOf;
-  let phones = normalizePhones(c);
+  let phones = normalizePhones(c).map(p=>({label:p.label, phone:p.phone||'+7 '}));
+  const AGE_OPTS = ['1,5 мес','2 мес','3 мес','4 мес','5 мес','6 мес','7 мес','8 мес','9 мес','10 мес','11 мес','1 год'];
+  function ageSelState(v){
+    v = String(v||'').trim();
+    if(!v) return {sel:'', custom:''};
+    if(AGE_OPTS.includes(v)) return {sel:v, custom:''};
+    const m = parseAgeToMonths(v), low = v.toLowerCase();
+    if(m!==null && /мес/.test(low) && !/год|лет/.test(low)){
+      const lab = (m===1.5 ? '1,5' : String(m)) + ' мес';
+      if(AGE_OPTS.includes(lab)) return {sel:lab, custom:''};
+    }
+    if(m===12 && /^1\s*(год|г\.?)$/.test(low)) return {sel:'1 год', custom:''};
+    return {sel:'__custom', custom:v};
+  }
+  function readAge(form){
+    const sel = form.querySelector('[name="childAgeSel"]');
+    const cu = form.querySelector('[name="childAgeCustom"]');
+    if(!sel) return '';
+    return sel.value==='__custom' ? (cu ? cu.value.trim() : '') : sel.value;
+  }
+  function isEmptyPhone(v){ return String(v||'').replace(/\D/g,'').replace(/^[78]/,'').length===0; }
+  function fixPhoneInput(inp){
+    let v = inp.value;
+    if(v.startsWith('+7')) return;
+    let d = v.replace(/\D/g,'');
+    if(d[0]==='7' || d[0]==='8') d = d.slice(1);
+    inp.value = '+7 ' + d;
+  }
   let addresses = normalizeAddresses(c);
 
   function phoneRowHtml(p, i){
     return `<div class="row-btns" style="align-items:flex-end;">
       <label class="field" style="flex:1;"><span>${i===0?'Кто (необязательно)':'Кто'}</span><input name="phoneLabel_${i}" value="${escapeHtml(p.label)}" placeholder="Мама"></label>
-      <label class="field" style="flex:2;"><span>Телефон</span><input type="tel" name="phoneNumber_${i}" value="${escapeHtml(p.phone)}" placeholder="+7 999 123-45-67"></label>
+      <label class="field" style="flex:2;"><span>Телефон</span><input type="tel" inputmode="tel" name="phoneNumber_${i}" value="${escapeHtml(p.phone)}" placeholder="+7 999 123-45-67"></label>
       ${i>0 ? `<button type="button" data-remove-phone="${i}" class="btn btn-ghost btn-sm" style="width:auto;margin-bottom:14px;padding:8px 12px;">✕</button>` : ''}
     </div>`;
   }
@@ -1506,7 +1533,15 @@ function openClientForm(existing, siblingOf){
         <label class="field" style="flex:1;"><span>Время начала</span><input type="time" name="time" value="${escapeHtml(c.time)}"></label>
       </div>
       <label class="field"><span>Имя ребёнка</span><input name="childName" value="${escapeHtml(c.childName)}"></label>
-      <label class="field"><span>Возраст ребёнка</span><input name="childAge" value="${escapeHtml(c.childAge)}" placeholder="например, 8 месяцев"></label>
+      ${(()=>{ const st = ageSelState(c.childAge); return `
+      <label class="field"><span>Возраст ребёнка</span>
+        <select name="childAgeSel" id="age-sel">
+          <option value="">Не указан</option>
+          ${AGE_OPTS.map(o=>`<option value="${o}"${st.sel===o?' selected':''}>${o}</option>`).join('')}
+          <option value="__custom"${st.sel==='__custom'?' selected':''}>Больше 1 года</option>
+        </select>
+      </label>
+      <label class="field${st.sel==='__custom'?'':' hidden'}" id="age-custom-wrap"><span>Точный возраст</span><input name="childAgeCustom" value="${escapeHtml(st.custom)}" placeholder="например, 2 года 3 мес"></label>`; })()}
       <label class="field"><span>Пол ребёнка</span>
         <div class="seg" id="gender-seg">
           <button type="button" class="${c.gender==='male'?'active':''}" data-val="male">Мальчик</button>
@@ -1539,6 +1574,11 @@ function openClientForm(existing, siblingOf){
   function syncFromDom(){
     const form = document.getElementById('client-form');
     if(!form) return;
+    ['parentName','price','time','childName','gender','source','comment'].forEach(k=>{
+      const el = form.querySelector(`[name="${k}"]`);
+      if(el) c[k] = el.value;
+    });
+    c.childAge = readAge(form);
     phones.forEach((p,i)=>{
       const l = form.querySelector(`[name="phoneLabel_${i}"]`);
       const n = form.querySelector(`[name="phoneNumber_${i}"]`);
@@ -1576,9 +1616,19 @@ function openClientForm(existing, siblingOf){
         document.querySelector('#client-form input[name=gender]').value = was ? '' : btn.dataset.val;
       });
     });
+    const ageSel = document.getElementById('age-sel');
+    ageSel.addEventListener('change', ()=>{
+      const w = document.getElementById('age-custom-wrap');
+      w.classList.toggle('hidden', ageSel.value!=='__custom');
+      if(ageSel.value==='__custom') { const i = w.querySelector('input'); if(i) i.focus(); }
+    });
+    document.querySelectorAll('#phones-list input[type=tel]').forEach(inp=>{
+      inp.addEventListener('input', ()=>fixPhoneInput(inp));
+      inp.addEventListener('focus', ()=>{ if(!inp.value.trim()) inp.value = '+7 '; });
+    });
     document.getElementById('add-phone-btn').addEventListener('click', ()=>{
       syncFromDom();
-      phones.push({label:'', phone:''});
+      phones.push({label:'', phone:'+7 '});
       rerender();
     });
     document.getElementById('add-address-btn').addEventListener('click', ()=>{
@@ -1607,7 +1657,7 @@ function openClientForm(existing, siblingOf){
       const errBox = document.getElementById('client-form-error');
       const missing = [];
       if(!fd.get('parentName').trim()) missing.push('имя родителя');
-      if(!phones.some(p=>p.phone.trim())) missing.push('хотя бы один номер телефона');
+      if(!phones.some(p=>!isEmptyPhone(p.phone))) missing.push('хотя бы один номер телефона');
       if(!fd.get('childName').trim()) missing.push('имя ребёнка');
       if(!fd.get('price') || Number(fd.get('price'))<=0) missing.push('стоимость сеанса');
       if(missing.length){
@@ -1624,7 +1674,7 @@ function openClientForm(existing, siblingOf){
         }
       }
       errBox.classList.add('hidden');
-      const cleanPhones = phones.filter(p=>p.phone.trim());
+      const cleanPhones = phones.filter(p=>!isEmptyPhone(p.phone)).map(p=>({label:p.label, phone:p.phone.trim()}));
       const cleanAddresses = addresses.filter(a=>a.street.trim() || a.district);
       const primaryPhone = cleanPhones[0] || {label:'',phone:''};
       const primaryAddress = cleanAddresses[0] || {label:'',street:'',apartment:'',entrance:'',floor:''};
@@ -1640,7 +1690,7 @@ function openClientForm(existing, siblingOf){
         existing.price = Number(fd.get('price'));
         existing.time = fd.get('time');
         existing.childName = fd.get('childName');
-        existing.childAge = fd.get('childAge');
+        existing.childAge = readAge(document.getElementById('client-form'));
         existing.gender = fd.get('gender');
         existing.comment = fd.get('comment');
         existing.source = fd.get('source') || '';
@@ -1660,7 +1710,7 @@ function openClientForm(existing, siblingOf){
           price: Number(fd.get('price')),
           time: fd.get('time'),
           childName: fd.get('childName'),
-          childAge: fd.get('childAge'),
+          childAge: readAge(document.getElementById('client-form')),
           gender: fd.get('gender'),
           comment: fd.get('comment'),
           source: fd.get('source') || '',
